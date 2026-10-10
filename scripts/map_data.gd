@@ -32,11 +32,11 @@ const LEFT_HALF := [
 	"#................##.", # 11: Food service lane & Center Salad Bar
 	"#...................", # 12: Cashier checkout passage (Mid choke)
 	"#...................", # 13: Entry to Dining Hall
-	"#...##.......##.....", # 14: Dining tables (Group A) & structural column
-	"#...##.......##.....", # 15: Table cluster 1
-	"#...................", # 16: Central dining hall walkway
-	"#...##.......##.....", # 17: Dining tables (Group B) & structural column
-	"#...##.......##.....", # 18: Table cluster 2
+	"#...##...##...##....", # 14: Dining tables (Group A: Tables 1, 2, 3)
+	"#...##...##...##....", # 15: Table cluster Row 1
+	"#...................", # 16: Central dining hall walkway (Aisle)
+	"#...##...##...##....", # 17: Dining tables (Group B: Tables 4, 5, 6)
+	"#...##...##...##....", # 18: Table cluster Row 2
 	"#...................", # 19: Polyterrasse window corridor
 	"#...................", # 20: Terrace promenade overlooking Zurich
 	"####################", # 21: South outer wall
@@ -66,6 +66,26 @@ func _init() -> void:
 		for x in W:
 			if grid[y * W + x] == 1:
 				astar.set_point_solid(Vector2i(x, y), true)
+
+
+enum Zone { KITCHEN, SERVERY, DINING }
+
+
+func tile_zone(x: int, y: int) -> int:
+	var sy := y if x < W / 2 else H - 1 - y
+	if sy <= 6:
+		return Zone.KITCHEN
+	elif sy <= 12:
+		return Zone.SERVERY
+	return Zone.DINING
+
+
+func is_table_tile(x: int, y: int) -> bool:
+	if x <= 0 or x >= W - 1 or y <= 0 or y >= H - 1:
+		return false
+	if not is_wall_tile(x, y):
+		return false
+	return tile_zone(x, y) == Zone.DINING
 
 
 func is_wall_tile(x: int, y: int) -> bool:
