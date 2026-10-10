@@ -32,8 +32,9 @@
 - **Authoritative Server Simulation**: All movements, collisions, line-of-sight calculations, weapon firing, damage, and cooldowns run on the dedicated server.
 - **True Anti-Cheat Fog of War**: The server uses DDA raycasts to check visibility. Hidden enemy positions are **never sent to the client** until an ally has direct line of sight. Wallhacks and client tampering cannot reveal enemies!
 - **Directional Firing Cones & Auto-Shooting**: Soldiers automatically engage enemies entering their firing cone with a clear line of sight. Mechanical twitch-aim is replaced with positioning and sightline control.
+- **Top-Down Tactical Mage Sprites**: Custom top-down character sprite with forward aiming wand, dynamic team tinting, health/selection arcs, and squad badges.
 - **Voice-Activated Tactical Abilities**: Speak commands using your microphone (*"smoke"*, *"scan"*, *"suppress"*, *"rush"*) through the browser Web Speech API, with instant keyboard fallbacks (`Q`, `E`, `R`, `F`).
-- **Symmetrical Battlefield**: Symmetrical point-mirrored map ensuring competitive fairness. The client view automatically rotates $180^\circ$ for Player 2 so both players always defend their home base on the left side of their screen.
+- **Authentic ETH Zürich Polymensa Map**: Point-symmetrical competitive recreation of ETH Zürich's famous cafeteria: commercial slate kitchen, free-flow buffet counters with tray rails, dining hall with Swiss oak tables and canteen chairs, Mensa food trays, and panoramic Polyterrasse window seating. The client view automatically rotates $180^\circ$ for Player 2 so both players always defend their home base on the left side of their screen.
 
 ---
 
@@ -198,6 +199,7 @@ flowchart TD
 | [`scripts/main.gd`](file:///Users/cyrill/hackathon-game/scripts/main.gd) | Game entry point: auto-selects Server mode if headless/`--server`, else Client mode. |
 | [`scripts/server/server_game.gd`](file:///Users/cyrill/hackathon-game/scripts/server/server_game.gd) | Authoritative simulation: movement, collision resolution, weapon firing, Fog of War snapshot filtering. |
 | [`scripts/client/client_game.gd`](file:///Users/cyrill/hackathon-game/scripts/client/client_game.gd) | Client logic: input handling, snapshot interpolation, sound dispatch, screen rotation. |
+| [`scripts/client/map_view.gd`](file:///Users/cyrill/hackathon-game/scripts/client/map_view.gd) | Renders ETH Polymensa tiles: kitchen slate, buffets, dining tables, chairs, Mensa trays, terrace seating. |
 | [`scripts/client/vision_mask.gd`](file:///Users/cyrill/hackathon-game/scripts/client/vision_mask.gd) | Generates the dynamic visual fog-of-war mask polygon inside a SubViewport. |
 | [`scripts/client/entity_view.gd`](file:///Users/cyrill/hackathon-game/scripts/client/entity_view.gd) | Renders soldiers, weapon cones, bullet tracers, damage indicators, smoke. |
 | [`scripts/client/hud.gd`](file:///Users/cyrill/hackathon-game/scripts/client/hud.gd) | Renders bottom squad cards, ability bars, voice status indicator, and match banners. |
