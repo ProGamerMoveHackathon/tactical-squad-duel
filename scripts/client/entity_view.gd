@@ -6,10 +6,14 @@ const Cfg = preload("res://scripts/config.gd")
 
 var game  # ClientGame
 var font: Font
+var soldier_texture: Texture2D
 
 
 func _ready() -> void:
 	font = ThemeDB.fallback_font
+	texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS
+	if ResourceLoader.exists("res://mage-test-sprite.png"):
+		soldier_texture = load("res://mage-test-sprite.png")
 
 
 func _process(_dt: float) -> void:
@@ -32,9 +36,13 @@ func _draw() -> void:
 	for c in game.corpses:
 		var col: Color = _team_color(c["team"]).darkened(0.5)
 		var p: Vector2 = c["pos"]
+		if soldier_texture:
+			draw_set_transform(p, c.get("facing", 0.0), Vector2(0.038, 0.038))
+			draw_texture(soldier_texture, Vector2(-530.0, -550.0), Color(0.3, 0.25, 0.25, 0.55))
+			draw_set_transform_matrix(Transform2D.IDENTITY)
 		draw_circle(p, 9.0, Color(0.25, 0.05, 0.05, 0.6))
-		draw_line(p + Vector2(-7, -7), p + Vector2(7, 7), col, 3.0)
-		draw_line(p + Vector2(-7, 7), p + Vector2(7, -7), col, 3.0)
+		draw_line(p + Vector2(-6, -6), p + Vector2(6, 6), col, 2.5)
+		draw_line(p + Vector2(-6, 6), p + Vector2(6, -6), col, 2.5)
 
 	const POLY_BADGES := {
 		"base": "ZUGANG",
@@ -149,41 +157,64 @@ func _draw_soldier(p: Vector2, facing: float, team: int, idx: int, hp: int, flag
 	var col := _team_color(team)
 	var weapon: int = Cfg.SQUAD_WEAPONS[idx]
 	var r := Cfg.SOLDIER_RADIUS
+
+	# Selection highlight ring (pulsing)
 	if is_sel:
 		var pulse := 0.5 + 0.5 * sin(game.time * 6.0)
-		draw_arc(p, r + 6.0 + pulse * 2.0, 0.0, TAU, 32, Color(1, 1, 1, 0.85), 2.0)
+		draw_arc(p, r + 7.0 + pulse * 2.5, 0.0, TAU, 32, Color(1, 1, 1, 0.9), 2.5)
+
+	# Rush speed lines behind unit
 	if flags & 4 != 0:  # rush
 		var back := Vector2.from_angle(facing + PI)
 		for i in 3:
 			draw_line(p + back * (r + 3 + i * 4) + back.orthogonal() * (i - 1) * 5.0, p + back * (r + 10 + i * 4) + back.orthogonal() * (i - 1) * 5.0, Color(0.6, 1.0, 0.9, 0.7), 2.0)
-	draw_circle(p + Vector2(2, 3), r, Color(0, 0, 0, 0.35))
-	# Gun
-	var dir := Vector2.from_angle(facing)
-	var gun_len := 20.0
-	var gun_w := 4.0
-	match weapon:
-		Cfg.Weapon.RIFLE:
-			gun_len = 24.0
-			gun_w = 3.0
-		Cfg.Weapon.SHOTGUN:
-			gun_len = 17.0
-			gun_w = 6.0
-	draw_line(p + dir * 4.0, p + dir * gun_len, Color(0.12, 0.12, 0.14), gun_w + 2.0)
-	draw_line(p + dir * 4.0, p + dir * gun_len, Color(0.35, 0.35, 0.38), gun_w)
-	draw_circle(p, r, col.darkened(0.25))
-	draw_circle(p, r - 3.0, col)
-	draw_circle(p + dir * 2.0, 4.5, col.lightened(0.35))
+
+	# Shadow
+	draw_circle(p + Vector2(2, 3), r + 2.0, Color(0, 0, 0, 0.35))
+
+	# Team identification base ring
+	draw_circle(p, r + 2.0, Color(col.r, col.g, col.b, 0.35))
+	draw_arc(p, r + 2.5, 0.0, TAU, 32, col, 2.0)
+
+	if soldier_texture:
+		# Draw mage character sprite facing the view angle
+		# Texture size is 1536x1024; head/body pivot is at (530, 550); wand points +X (0 deg).
+		var sprite_mod := Color(0.92, 0.96, 1.0) if team == 0 else Color(1.0, 0.88, 0.88)
+		draw_set_transform(p, facing, Vector2(0.042, 0.042))
+		draw_texture(soldier_texture, Vector2(-530.0, -550.0), sprite_mod)
+		draw_set_transform_matrix(Transform2D.IDENTITY)
+	else:
+		# Fallback geometric soldier
+		var dir := Vector2.from_angle(facing)
+		var gun_len := 20.0
+		var gun_w := 4.0
+		match weapon:
+			Cfg.Weapon.RIFLE:
+				gun_len = 24.0
+				gun_w = 3.0
+			Cfg.Weapon.SHOTGUN:
+				gun_len = 17.0
+				gun_w = 6.0
+		draw_line(p + dir * 4.0, p + dir * gun_len, Color(0.12, 0.12, 0.14), gun_w + 2.0)
+		draw_line(p + dir * 4.0, p + dir * gun_len, Color(0.35, 0.35, 0.38), gun_w)
+		draw_circle(p, r, col.darkened(0.25))
+		draw_circle(p, r - 3.0, col)
+		draw_circle(p + dir * 2.0, 4.5, col.lightened(0.35))
+
 	# Health ring
 	var frac := clampf(hp / float(Cfg.SOLDIER_HP), 0.0, 1.0)
-	draw_arc(p, r + 2.5, 0.0, TAU, 32, Color(0, 0, 0, 0.5), 3.0)
+	draw_arc(p, r + 3.0, 0.0, TAU, 32, Color(0, 0, 0, 0.55), 3.0)
 	var hp_col := Color(0.3, 1.0, 0.4).lerp(Color(1.0, 0.25, 0.2), 1.0 - frac)
 	if frac > 0.0:
-		draw_arc(p, r + 2.5, -PI * 0.5 - game.world_rotation, -PI * 0.5 - game.world_rotation + TAU * frac, 32, hp_col, 3.0)
+		draw_arc(p, r + 3.0, -PI * 0.5 - game.world_rotation, -PI * 0.5 - game.world_rotation + TAU * frac, 32, hp_col, 3.0)
+
 	if flags & 2 != 0:  # suppress
-		draw_arc(p, r + 6.0, 0.0, TAU, 24, Color(1.0, 0.85, 0.3, 0.6), 1.5)
+		draw_arc(p, r + 7.0, 0.0, TAU, 24, Color(1.0, 0.85, 0.3, 0.7), 2.0)
+
 	# Label (counter-rotated so text is always upright)
 	var label: String = str(idx + 1) if team == game.slot else ["A", "B", "C"][idx]
-	_draw_label(p + Vector2(0, 1), label, Color(0.05, 0.05, 0.1), 12)
+	draw_circle(p + Vector2(0, 1), 6.5, Color(0, 0, 0, 0.55))
+	_draw_label(p + Vector2(0, 2), label, Color.WHITE, 11)
 
 
 func _draw_label(p: Vector2, text: String, col: Color, size: int) -> void:
