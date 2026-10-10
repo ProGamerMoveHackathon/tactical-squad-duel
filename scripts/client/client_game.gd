@@ -181,10 +181,10 @@ func _build_hud() -> void:
 	blocker.mouse_filter = Control.MOUSE_FILTER_STOP
 	hud_layer.add_child(blocker)
 	var mic_btn := Button.new()
-	mic_btn.text = "Mic"
+	mic_btn.text = "🎙️ Mic [V]"
 	mic_btn.focus_mode = Control.FOCUS_NONE
-	mic_btn.position = Vector2(1222, Cfg.WORLD_SIZE.y + 8)
-	mic_btn.size = Vector2(50, 26)
+	mic_btn.position = Vector2(1206, Cfg.WORLD_SIZE.y - 26)
+	mic_btn.size = Vector2(66, 22)
 	mic_btn.pressed.connect(func():
 		voice.toggle()
 		if voice.enabled:

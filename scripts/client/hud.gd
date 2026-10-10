@@ -91,29 +91,85 @@ func _draw() -> void:
 		else:
 			_text(Vector2(x + 8, top + 51), "%.1fs" % cd, 12, Color(0.9, 0.6, 0.4))
 
-	# Voice + enemy status
-	var vx := 1008.0
+	# ---- Bottom Right: Voice Tactical Console & Speech Feedback ----------
+	var vx := 1004.0
+	var box_w := vw - vx - 8.0  # 1280 - 1004 - 8 = 268 px
+	var box_h := 52.0
+	var box_r := Rect2(vx, top + 6, box_w, box_h)
+
 	var vstatus: String = game.voice.status
 	var listening: bool = game.voice.enabled and vstatus == "listening"
-	var dot_center := Vector2(vx + 10, top + 20)
+	var pulse := 0.5 + 0.5 * sin(game.time * 8.0)
+	var has_speech: bool = game.voice.interim_text != "" or (game.voice.last_heard != "" and game.voice.last_heard_timer > 0.0)
+
+	# 1. Console background card
+	var bg_col := Color(0.10, 0.12, 0.16)
+	if game.voice.interim_text != "":
+		bg_col = Color(0.12, 0.16, 0.22)
+	elif game.voice.last_heard_timer > 0.0 and game.voice.last_action != "":
+		bg_col = Color(0.10, 0.18, 0.15)
+	draw_rect(box_r, bg_col)
+
+	# 2. Console border
+	var border_col := Color(0.24, 0.28, 0.32)
+	var border_w := 1.0
 	if listening:
-		var pulse := 1.0 + 0.35 * sin(game.time * 8.0)
-		draw_circle(dot_center, 6.0, Color(0.2, 1.0, 0.4))
-		draw_arc(dot_center, 9.0 * pulse, 0.0, TAU, 16, Color(0.2, 1.0, 0.4, 0.4), 1.5)
+		if game.voice.interim_text != "":
+			border_col = Color(1.0, 0.85, 0.2, 0.9)
+			border_w = 2.0
+		elif game.voice.last_heard_timer > 0.0 and game.voice.last_action != "":
+			border_col = Color(0.3, 1.0, 0.6, 0.9)
+			border_w = 2.0
+		else:
+			border_col = Color(0.2, 0.7, 0.9, 0.5 + 0.2 * pulse)
+	elif game.voice.enabled:
+		border_col = Color(1.0, 0.7, 0.2, 0.7)
+	draw_rect(box_r, border_col, false, border_w)
+
+	# 3. Top Line: Microphone Status Dot & Enemies Count
+	var dot_center := Vector2(vx + 12, top + 19)
+	if listening:
+		draw_circle(dot_center, 5.0, Color(0.2, 1.0, 0.4))
+		draw_arc(dot_center, 7.5 + 2.0 * pulse, 0.0, TAU, 16, Color(0.2, 1.0, 0.4, 0.4 * (1.0 - pulse)), 1.5)
 	else:
-		draw_circle(dot_center, 6.0, Color(1.0, 0.7, 0.2) if game.voice.enabled else Color(0.4, 0.4, 0.4))
-	_text(Vector2(vx + 22, top + 25), "Voice [V]: " + vstatus, 12, Color(0.85, 0.85, 0.85), HORIZONTAL_ALIGNMENT_LEFT, 250)
-	if game.voice.last_heard != "":
-		_text(Vector2(vx + 22, top + 41), "heard: \"%s\"" % game.voice.last_heard, 11, Color(0.6, 0.8, 1.0), HORIZONTAL_ALIGNMENT_LEFT, 250)
-	_text(Vector2(vx + 4, top + 58), "Enemy squad:", 11, Color(0.7, 0.7, 0.7))
+		draw_circle(dot_center, 5.0, Color(1.0, 0.6, 0.2) if game.voice.enabled else Color(0.45, 0.45, 0.48))
+
+	var stat_title := "VOICE [V]: " + vstatus.to_upper()
+	if game.voice.interim_text != "":
+		stat_title = "VOICE: HEARING..."
+	_text(Vector2(vx + 22, top + 23), stat_title, 11, Color(0.4, 1.0, 0.7) if listening else Color(0.7, 0.7, 0.7), HORIZONTAL_ALIGNMENT_LEFT, 135)
+
+	# Enemy squad status dots (compact)
+	var en_lbl_x := vx + 160.0
+	_text(Vector2(en_lbl_x, top + 23), "Enemies:", 10, Color(0.6, 0.6, 0.65))
 	for i in Cfg.SQUAD_SIZE:
 		var alive: bool = game.enemy_alive[i] if i < game.enemy_alive.size() else true
-		var c := Vector2(vx + 92 + i * 18, top + 54)
+		var c := Vector2(en_lbl_x + 50 + i * 14, top + 19)
 		if alive:
-			draw_circle(c, 6, en_col)
+			draw_circle(c, 4.5, en_col)
 		else:
-			draw_arc(c, 6, 0, TAU, 12, en_col.darkened(0.5), 1.5)
-			draw_line(c + Vector2(-4, -4), c + Vector2(4, 4), en_col.darkened(0.3), 2)
+			draw_arc(c, 4.5, 0, TAU, 12, en_col.darkened(0.5), 1.2)
+			draw_line(c + Vector2(-3, -3), c + Vector2(3, 3), en_col.darkened(0.3), 1.5)
+
+	# 4. Bottom Line: Real-Time Speech Feedback Window
+	var sub_r := Rect2(vx + 4, top + 28, box_w - 8, 24)
+	draw_rect(sub_r, Color(0.06, 0.08, 0.10, 0.85))
+	draw_rect(sub_r, Color(0.18, 0.22, 0.26), false, 1.0)
+
+	if game.voice.interim_text != "":
+		var itxt: String = "🗣️ \"%s...\"" % game.voice.interim_text
+		_text(Vector2(vx + 8, top + 45), itxt, 12, Color(1.0, 0.9, 0.3), HORIZONTAL_ALIGNMENT_LEFT, box_w - 16)
+	elif game.voice.last_heard != "" and game.voice.last_heard_timer > 0.0:
+		var action_str: String = game.voice.last_action
+		var feed_str := "\"%s\"" % game.voice.last_heard
+		if action_str != "":
+			feed_str += "  [%s]" % action_str
+			_text(Vector2(vx + 8, top + 45), "✔ " + feed_str, 12, Color(0.3, 1.0, 0.6), HORIZONTAL_ALIGNMENT_LEFT, box_w - 16)
+		else:
+			feed_str += "  (no match)"
+			_text(Vector2(vx + 8, top + 45), "heard: " + feed_str, 11, Color(0.7, 0.85, 1.0), HORIZONTAL_ALIGNMENT_LEFT, box_w - 16)
+	else:
+		_text(Vector2(vx + 8, top + 45), "say: \"alpha to mid\" · \"rush\" · \"halt\"", 10, Color(0.48, 0.55, 0.62), HORIZONTAL_ALIGNMENT_LEFT, box_w - 16)
 
 	# ---- Top info ---------------------------------------------------------
 	var n0: String = game.names[0] if game.names.size() > 0 else ""

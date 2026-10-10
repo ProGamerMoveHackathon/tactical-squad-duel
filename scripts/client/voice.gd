@@ -28,10 +28,33 @@ const JS_SETUP := """
 (function () {
   if (window.tsdVoice) return;
   var SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-  var v = window.tsdVoice = { supported: !!SR, active: false, queue: [], status: SR ? 'off (press V)' : 'unsupported', session: 0 };
-  var rec = null, want = false;
+  var v = window.tsdVoice = {
+    supported: !!SR,
+    active: false,
+    queue: [],
+    status: SR ? 'off (press V)' : 'unsupported',
+    session: 0,
+    interim: '',
+    lastHeard: ''
+  };
+  var rec = null, want = false, restartTimer = null;
 
-  function make() {
+  function stopRec() {
+    if (rec) {
+      try {
+        rec.onstart = null;
+        rec.onerror = null;
+        rec.onend = null;
+        rec.onresult = null;
+        rec.abort();
+      } catch (e) {}
+      rec = null;
+    }
+  }
+
+  function createAndStart() {
+    if (!SR || !want) return;
+    stopRec();
     try {
       rec = new SR();
       rec.continuous = true;
@@ -46,18 +69,20 @@ const JS_SETUP := """
       };
 
       rec.onerror = function (e) {
-        // Benign events: silence timeout ('no-speech') or user cancellation ('aborted')
         if (e.error === 'no-speech' || e.error === 'aborted') {
           return;
         }
-        // Fatal or system errors: stop retrying loop immediately!
-        want = false;
-        v.active = false;
         if (e.error === 'not-allowed') {
+          want = false;
+          v.active = false;
           v.status = 'mic blocked (allow in browser)';
         } else if (e.error === 'audio-capture') {
+          want = false;
+          v.active = false;
           v.status = 'no microphone found';
         } else if (e.error === 'network') {
+          want = false;
+          v.active = false;
           v.status = 'offline / speech service error';
         } else {
           v.status = 'error: ' + e.error;
@@ -67,19 +92,15 @@ const JS_SETUP := """
       rec.onend = function () {
         v.active = false;
         if (want) {
-          // Browser ended session naturally (e.g. after a period of silence); resume gently
-          setTimeout(function () {
+          // Chrome pauses on silence; immediately restart with fresh SR instance!
+          if (restartTimer) clearTimeout(restartTimer);
+          restartTimer = setTimeout(function () {
             if (want && !v.active) {
-              try {
-                rec.start();
-              } catch (err) {
-                want = false;
-                v.status = 'off (press V)';
-              }
+              createAndStart();
             }
-          }, 400);
+          }, 200);
         } else {
-          if (!v.status.startsWith('error') && !v.status.startsWith('mic blocked') && !v.status.startsWith('no microphone') && !v.status.startsWith('offline')) {
+          if (!v.status.startsWith('error') && !v.status.startsWith('mic blocked') && !v.status.startsWith('no microphone')) {
             v.status = 'off (press V)';
           }
         }
@@ -89,42 +110,54 @@ const JS_SETUP := """
         for (var i = ev.resultIndex; i < ev.results.length; i++) {
           var r = ev.results[i], alts = [];
           for (var j = 0; j < r.length; j++) alts.push(r[j].transcript);
-          v.queue.push({ key: v.session + ':' + i, text: alts.join(' | '), final: r.isFinal });
+          var textStr = alts.join(' | ');
+          if (r.isFinal) {
+            v.lastHeard = alts[0].trim();
+            v.interim = '';
+          } else {
+            v.interim = alts[0].trim();
+          }
+          v.queue.push({ key: v.session + ':' + i, text: textStr, final: r.isFinal });
         }
       };
+
+      rec.start();
     } catch (e) {
-      v.status = 'unsupported';
-      v.supported = false;
+      if (want) {
+        if (restartTimer) clearTimeout(restartTimer);
+        restartTimer = setTimeout(function () {
+          if (want && !v.active) createAndStart();
+        }, 500);
+      }
     }
   }
 
   v.start = function () {
     if (!SR) return;
-    if (v.active) return;
     want = true;
-    if (!rec) make();
     v.status = 'listening';
-    try {
-      rec.start();
-    } catch (err) {
-      want = false;
-      v.active = false;
-      v.status = 'off (press V)';
-    }
+    createAndStart();
   };
 
   v.stop = function () {
     want = false;
     v.active = false;
     v.status = 'off (press V)';
-    if (rec) {
-      try { rec.abort(); } catch (err) {}
-    }
+    v.interim = '';
+    if (restartTimer) clearTimeout(restartTimer);
+    stopRec();
   };
 
   v.poll = function () {
     var q = v.queue; v.queue = [];
-    return JSON.stringify({ q: q, status: v.status, supported: v.supported, active: v.active });
+    return JSON.stringify({
+      q: q,
+      status: v.status,
+      supported: v.supported,
+      active: v.active,
+      interim: v.interim || '',
+      lastHeard: v.lastHeard || ''
+    });
   };
 })();
 """
@@ -133,6 +166,9 @@ var available := false
 var enabled := false
 var status := "unavailable"
 var last_heard := ""
+var last_heard_timer := 0.0
+var last_action := ""
+var interim_text := ""
 var _fired := {}  # result key -> Array of fired command ids
 var _poll_t := 0.0
 
@@ -164,6 +200,7 @@ func stop() -> void:
 	if not available or not enabled:
 		return
 	enabled = false
+	interim_text = ""
 	JavaScriptBridge.eval("window.tsdVoice.stop()", true)
 	status = "off (press V)"
 	status_changed.emit(status)
@@ -177,12 +214,15 @@ func toggle() -> void:
 
 
 func _process(delta: float) -> void:
+	if last_heard_timer > 0.0:
+		last_heard_timer = maxf(0.0, last_heard_timer - delta)
+
 	if not available:
 		return
 	_poll_t -= delta
 	if _poll_t > 0.0:
 		return
-	_poll_t = 0.08
+	_poll_t = 0.06
 	var raw = JavaScriptBridge.eval("window.tsdVoice.poll()", true)
 	if typeof(raw) != TYPE_STRING:
 		return
@@ -191,10 +231,18 @@ func _process(delta: float) -> void:
 		return
 	var new_status: String = str(data.get("status", status))
 	var is_active: bool = bool(data.get("active", false))
-	if new_status.begins_with("error") or new_status.begins_with("mic blocked") or new_status.begins_with("no microphone") or new_status.begins_with("offline") or new_status.begins_with("off"):
+	if new_status.begins_with("error") or new_status.begins_with("mic blocked") or new_status.begins_with("no microphone") or new_status.begins_with("offline"):
 		enabled = false
 	elif is_active or new_status == "listening":
 		enabled = true
+
+	var cur_interim: String = str(data.get("interim", "")).strip_edges()
+	interim_text = cur_interim
+
+	var cur_last: String = str(data.get("lastHeard", "")).strip_edges()
+	if cur_last != "" and cur_last != last_heard:
+		last_heard = cur_last
+		last_heard_timer = 5.0
 
 	if new_status != status:
 		status = new_status
@@ -208,6 +256,9 @@ func _handle_result(key: String, text: String, is_final: bool) -> void:
 	var best := lower.split(" | ")[0].strip_edges()
 	if best != "":
 		last_heard = best
+		last_heard_timer = 5.0
+		if is_final:
+			interim_text = ""
 	var fired: Array = _fired.get(key, [])
 
 	for alt in text.split(" | "):
@@ -218,6 +269,9 @@ func _handle_result(key: String, text: String, is_final: bool) -> void:
 				continue
 			fired.append(cmd_key)
 			_fired[key] = fired
+			last_action = format_action_tag(cmd)
+			last_heard_timer = 5.0
+			interim_text = ""
 			command_spoken.emit(cmd)
 			if cmd["type"] == CmdType.SELECT and cmd.get("subject", -1) >= 0:
 				select_spoken.emit(cmd["subject"], best)
@@ -227,6 +281,37 @@ func _handle_result(key: String, text: String, is_final: bool) -> void:
 
 	if is_final and _fired.size() > 64:
 		_fired.clear()
+
+
+static func format_action_tag(cmd: Dictionary) -> String:
+	var subj_str := ""
+	var subj: int = cmd.get("subject", -2)
+	match subj:
+		-1: subj_str = "SQUAD "
+		0: subj_str = "ALPHA "
+		1: subj_str = "BRAVO "
+		2: subj_str = "CHARLIE "
+		_: subj_str = ""
+
+	match cmd.get("type", CmdType.NONE):
+		CmdType.SELECT:
+			return subj_str + "SELECT"
+		CmdType.MOVE_CALLOUT:
+			return subj_str + "→ " + str(cmd.get("param", "")).to_upper()
+		CmdType.MOVE_DIR:
+			return subj_str + "STEP " + str(cmd.get("param", "")).to_upper()
+		CmdType.WATCH_DIR:
+			return subj_str + "WATCH " + str(cmd.get("param", "")).to_upper()
+		CmdType.HALT:
+			return subj_str + "HALT"
+		CmdType.ABILITY:
+			var ab: int = cmd.get("ability", 0)
+			return Cfg.ABILITIES[ab]["name"].to_upper()
+		CmdType.DEPLOY:
+			return "DEPLOY"
+		CmdType.REMATCH:
+			return "REMATCH"
+	return "OK"
 
 
 ## Static natural grammar parser for testing and runtime.
