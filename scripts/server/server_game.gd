@@ -40,7 +40,7 @@ var names := ["", ""]
 var squads := [[], []]       # Array[Soldier] per team
 var selected := [0, 0]
 var cooldowns := [[0.0, 0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 0.0]]
-var smokes := []             # {pos, radius, t}
+var fogs := []               # {pos, radius, t}
 var scans := []              # {team, origin, t}
 var events := [[], []]       # per team, flushed with every snapshot
 var vis_table := [[false, false, false, false], [false, false, false, false]]  # vis_table[team][enemy idx]
@@ -174,7 +174,7 @@ func _reset_squads() -> void:
 			squads[team].append(s)
 		cooldowns[team] = [0.0, 0.0, 0.0, 0.0]
 		selected[team] = 0
-	smokes.clear()
+	fogs.clear()
 	scans.clear()
 	vis_table = [[false, false, false, false], [false, false, false, false]]
 	rematch_votes = [false, false]
@@ -267,6 +267,9 @@ func on_ability(id: int, ability: int, target: Vector2, via_voice: bool) -> void
 	if state != Cfg.State.PLAYING:
 		events[slot].append(["deny", ability, "not now"])
 		return
+	if cooldowns[slot][ability] > 0.0:
+		events[slot].append(["deny", ability, "cooling down %.1fs" % cooldowns[slot][ability]])
+		return
 	var casters: Array[Soldier] = []
 	var equipped_alive := 0
 	var mp_cost: float = def["mp_cost"]
@@ -281,10 +284,10 @@ func on_ability(id: int, ability: int, target: Vector2, via_voice: bool) -> void
 		events[slot].append(["deny", ability, reason])
 		return
 	match ability:
-		Cfg.Ability.SMOKE:
+		Cfg.Ability.FOG:
 			for s: Soldier in casters:
-				var cast_target := _smoke_landing(s, float(def["throw_distance"]))
-				smokes.append({"pos": cast_target, "radius": def["radius"], "t": def["duration"]})
+				var cast_target := _fog_landing(s, float(def["throw_distance"]))
+				fogs.append({"pos": cast_target, "radius": def["radius"], "t": def["duration"]})
 		Cfg.Ability.SCAN:
 			for s: Soldier in casters:
 				scans.append({"team": slot, "origin": s.pos, "t": def["duration"]})
@@ -301,15 +304,16 @@ func on_ability(id: int, ability: int, target: Vector2, via_voice: bool) -> void
 				s.rush_t = def["duration"]
 	for s: Soldier in casters:
 		s.mp = maxf(0.0, s.mp - mp_cost)
+	cooldowns[slot][ability] = float(def["cooldown"])
 	events[slot].append(["ability", ability, casters[0].idx, via_voice, casters.size()])
 	print("[server] slot %d used %s with %d caster(s)%s" % [slot, def["name"], casters.size(), " (voice)" if via_voice else ""])
 
 
-func _smoke_landing(s: Soldier, throw_distance: float) -> Vector2:
+func _fog_landing(s: Soldier, throw_distance: float) -> Vector2:
 	var direction := Vector2.from_angle(s.facing)
 	var open_distance := map.raycast(s.pos, direction, throw_distance)
 	# Keep the landing point out of the wall. When cover is directly in front,
-	# this collapses to zero and the smoke is dropped at the caster's feet.
+	# this collapses to zero and the fog is dropped at the caster's feet.
 	var wall_clearance := Cfg.SOLDIER_RADIUS + 2.0
 	var landing_distance := throw_distance
 	if open_distance < throw_distance - 0.01:
@@ -359,10 +363,10 @@ func _physics_process(dt: float) -> void:
 	_broadcast()
 
 
-func _smoke_list() -> Array:
+func _fog_list() -> Array:
 	var out := []
-	for sm in smokes:
-		out.append([sm["pos"], sm["radius"]])
+	for fog in fogs:
+		out.append([fog["pos"], fog["radius"]])
 	return out
 
 
@@ -377,10 +381,10 @@ func _simulate(dt: float) -> void:
 	for t in 2:
 		for a in 4:
 			cooldowns[t][a] = maxf(0.0, cooldowns[t][a] - dt)
-	for i in range(smokes.size() - 1, -1, -1):
-		smokes[i]["t"] -= dt
-		if smokes[i]["t"] <= 0.0:
-			smokes.remove_at(i)
+	for i in range(fogs.size() - 1, -1, -1):
+		fogs[i]["t"] -= dt
+		if fogs[i]["t"] <= 0.0:
+			fogs.remove_at(i)
 	for i in range(scans.size() - 1, -1, -1):
 		scans[i]["t"] -= dt
 		if scans[i]["t"] <= 0.0:
@@ -418,10 +422,10 @@ func _simulate(dt: float) -> void:
 			s.pos = map.resolve_circle(s.pos, Cfg.SOLDIER_RADIUS)
 
 	_compute_visibility()
-	var smoke_list := _smoke_list()
+	var fog_list := _fog_list()
 	for s: Soldier in all:
 		if s.alive:
-			_shoot(s, dt, smoke_list)
+			_shoot(s, dt, fog_list)
 	_check_victory()
 
 
@@ -461,20 +465,20 @@ func _move_soldier(s: Soldier, dt: float) -> void:
 
 
 func _compute_visibility() -> void:
-	var smoke_list := _smoke_list()
+	var fog_list := _fog_list()
 	for team in 2:
 		var enemies: Array = squads[1 - team]
 		for e: Soldier in enemies:
 			var seen := false
 			if e.alive:
 				for s: Soldier in squads[team]:
-					if s.alive and map.can_see(s.pos, s.facing, e.pos, smoke_list):
+					if s.alive and map.can_see(s.pos, s.facing, e.pos, fog_list):
 						seen = true
 						break
 			vis_table[team][e.idx] = seen
 
 
-func _shoot(s: Soldier, dt: float, smoke_list: Array) -> void:
+func _shoot(s: Soldier, dt: float, fog_list: Array) -> void:
 	s.fire_cd = maxf(0.0, s.fire_cd - dt)
 	var w: Dictionary = Cfg.WEAPONS[s.weapon]
 	var suppressed := s.suppress_t > 0.0
@@ -491,7 +495,7 @@ func _shoot(s: Soldier, dt: float, smoke_list: Array) -> void:
 			continue
 		if d > Cfg.SOLDIER_RADIUS * 2.0 and absf(angle_difference(s.facing, diff.angle())) > cone * 0.5:
 			continue
-		if not map.has_los(s.pos, e.pos, smoke_list):
+		if not map.has_los(s.pos, e.pos, fog_list):
 			continue
 		if d < best_d:
 			best_d = d
@@ -541,6 +545,9 @@ func _shoot(s: Soldier, dt: float, smoke_list: Array) -> void:
 		events[best.team].append(["incoming", best.idx, ang, dmg])
 
 	if dmg > 0:
+		events[best.team].append(["card_hit", best.idx, dmg])
+		var actual_damage := minf(float(dmg), best.hp)
+		s.mp = minf(Cfg.SOLDIER_MP, s.mp + actual_damage * Cfg.MP_RESTORE_PER_DAMAGE)
 		best.hp -= dmg
 		best.health_regen_wait = Cfg.HEALTH_REGEN_DELAY
 		if best.hp <= 0:
@@ -591,9 +598,9 @@ func _flags(s: Soldier) -> int:
 
 
 func _broadcast() -> void:
-	var smoke_data := []
-	for sm in smokes:
-		smoke_data.append([sm["pos"], sm["radius"], sm["t"]])
+	var fog_data := []
+	for fog in fogs:
+		fog_data.append([fog["pos"], fog["radius"], fog["t"]])
 	for team in 2:
 		var pid: int = peers[team]
 		if pid == 0:
@@ -626,7 +633,7 @@ func _broadcast() -> void:
 			"en": en,
 			"sc": scanned,
 			"ea": enemy_alive,
-			"sm": smoke_data,
+			"fg": fog_data,
 			"cd": cooldowns[team].duplicate(),
 			"ev": events[team],
 			"rm": rematch_votes.duplicate(),

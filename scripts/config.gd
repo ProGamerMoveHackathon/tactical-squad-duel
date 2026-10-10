@@ -15,7 +15,8 @@ const WORLD_SIZE := Vector2(MAP_W * TILE, MAP_H * TILE)
 const SOLDIER_RADIUS := 11.0
 const SOLDIER_HP := 100
 const SOLDIER_MP := 100.0
-const MP_RECOVERY_TIME := 8.0
+const MP_RECOVERY_TIME := 16.0
+const MP_RESTORE_PER_DAMAGE := 0.35
 const HEALTH_REGEN_DELAY := 10.0
 const HEALTH_REGEN_RATE := 5.0
 const MOVE_SPEED := 120.0              # px / s
@@ -28,7 +29,7 @@ const CONTINUE_MOVE_WHEN_DESELECTED := true
 const VIEW_RANGE := 420.0
 const VIEW_CONE := deg_to_rad(120.0)   # full angle
 const AWARE_RADIUS := 64.0             # 360 degree "hearing" radius
-const SMOKE_SEE_DEPTH := 22.0          # how far you can see into a smoke cloud
+const FOG_SEE_DEPTH := 22.0            # how far you can see into a fog cloud
 
 # --- Weapons --------------------------------------------------------------
 enum Weapon { RIFLE, SMG, SHOTGUN }
@@ -42,12 +43,12 @@ const SQUAD_WEAPONS := [Weapon.RIFLE, Weapon.SMG, Weapon.SHOTGUN, Weapon.RIFLE]
 const REACTION_TIME := 0.22  # delay before a soldier opens fire on a newly acquired target
 
 # --- Abilities ------------------------------------------------------------
-enum Ability { SMOKE, SCAN, SUPPRESS, RUSH }
+enum Ability { FOG, SCAN, SUPPRESS, RUSH }
 const ABILITIES := {
-	Ability.SMOKE: {"name": "Smoke", "mp_cost": 40.0, "cooldown": 22.0, "duration": 9.0, "radius": 74.0, "throw_distance": 96.0},
-	Ability.SCAN: {"name": "Scan", "mp_cost": 25.0, "cooldown": 18.0, "duration": 2.5, "radius": 460.0},
-	Ability.SUPPRESS: {"name": "Suppress", "mp_cost": 55.0, "cooldown": 20.0, "duration": 6.0, "cone_mult": 1.8, "accuracy_mult": 0.55, "rate_mult": 1.3},
-	Ability.RUSH: {"name": "Rush", "mp_cost": 35.0, "cooldown": 16.0, "duration": 4.0, "speed_mult": 1.65},
+	Ability.FOG: {"name": "Fog", "mp_cost": 50.0, "cooldown": 10.0, "duration": 9.0, "radius": 74.0, "throw_distance": 96.0},
+	Ability.SCAN: {"name": "Scan", "mp_cost": 35.0, "cooldown": 7.0, "duration": 2.5, "radius": 460.0},
+	Ability.SUPPRESS: {"name": "Suppress", "mp_cost": 70.0, "cooldown": 12.0, "duration": 6.0, "cone_mult": 1.8, "accuracy_mult": 0.55, "rate_mult": 1.3},
+	Ability.RUSH: {"name": "Rush", "mp_cost": 45.0, "cooldown": 9.0, "duration": 4.0, "speed_mult": 1.65},
 }
 ## Three equipped abilities per squad member. Bit N corresponds to Ability N.
 const DEFAULT_LOADOUTS := [7, 13, 11, 14]
@@ -55,7 +56,7 @@ const ABILITY_SLOT_KEYS := ["W", "E", "R"]
 ## Spoken phrases that trigger each ability (lower-case, matched as whole words /
 ## word sequences). Includes a few common speech-recognition mishearings.
 const VOICE_PHRASES := {
-	Ability.SMOKE: ["smoke", "smoked", "smokes", "smoking", "smog", "smoky", "pop smoke"],
+	Ability.FOG: ["fog", "fog magic", "cast fog", "summon fog", "mist", "cast mist"],
 	Ability.SCAN: ["scan", "scans", "scanning", "scanner", "radar", "ping"],
 	Ability.SUPPRESS: ["suppress", "suppressing", "suppression", "surpress", "oppress", "cover fire", "covering fire"],
 	Ability.RUSH: ["rush", "rushing", "russia", "brush", "sprint", "go go"],

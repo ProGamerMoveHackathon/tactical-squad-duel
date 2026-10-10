@@ -1,5 +1,5 @@
 extends Node2D
-## Draws all dynamic world entities: soldiers, firing cones, tracers, smoke,
+## Draws all dynamic world entities: soldiers, firing cones, tracers, fog,
 ## scan pings, damage indicators. Lives inside the (possibly rotated) World node.
 
 const Cfg = preload("res://scripts/config.gd")
@@ -36,7 +36,7 @@ func _draw() -> void:
 	var my_team: int = game.slot
 	var enemy_team: int = 1 - my_team
 	var now: float = game.time
-	var smokes: Array = game.smoke_list()
+	var fogs: Array = game.fog_list()
 
 	# Corpses
 	for c in game.corpses:
@@ -77,14 +77,14 @@ func _draw() -> void:
 			var suppressed: bool = o["flags"] & 2 != 0
 			var a := 0.20 if is_sel else 0.09
 			var col: Color = Color(1.0, 0.85, 0.3) if suppressed else _team_color(my_team)
-			_draw_cone(o["disp"], o["disp_facing"], Cfg.weapon_cone(weapon, suppressed), Cfg.WEAPONS[weapon]["range"], Color(col, a), Color(col, a + 0.25), smokes)
+			_draw_cone(o["disp"], o["disp_facing"], Cfg.weapon_cone(weapon, suppressed), Cfg.WEAPONS[weapon]["range"], Color(col, a), Color(col, a + 0.25), fogs)
 
 		# Visible enemy cones
 		for idx in game.enemies:
 			var e: Dictionary = game.enemies[idx]
 			var weapon: int = Cfg.SQUAD_WEAPONS[idx]
 			var suppressed: bool = e["flags"] & 2 != 0
-			_draw_cone(e["disp"], e["disp_facing"], Cfg.weapon_cone(weapon, suppressed), Cfg.WEAPONS[weapon]["range"], Color(_team_color(enemy_team), 0.08), Color(_team_color(enemy_team), 0.3), smokes)
+			_draw_cone(e["disp"], e["disp_facing"], Cfg.weapon_cone(weapon, suppressed), Cfg.WEAPONS[weapon]["range"], Color(_team_color(enemy_team), 0.08), Color(_team_color(enemy_team), 0.3), fogs)
 
 	# Selected soldier path / watch direction
 	if game.state == Cfg.State.PLAYING and game.selected >= 0 and game.selected < game.own.size():
@@ -153,11 +153,11 @@ func _draw() -> void:
 		draw_circle(p, radius * 1.7, Color(col.r, col.g, col.b, 0.32 * k))
 		draw_circle(p, radius, Color(0.9, 1.0, 1.0, 0.95 * k))
 
-	# Smoke clouds
-	for sm in game.smokes:
-		var p: Vector2 = sm[0]
-		var r: float = sm[1]
-		var t_left: float = sm[2]
+	# Fog clouds
+	for fog in game.fogs:
+		var p: Vector2 = fog[0]
+		var r: float = fog[1]
+		var t_left: float = fog[2]
 		var fade := clampf(t_left / 1.0, 0.0, 1.0)
 		for i in 5:
 			var rr := r * (1.0 - i * 0.15)
@@ -252,13 +252,13 @@ func _draw_label(p: Vector2, text: String, col: Color, size: int) -> void:
 	draw_set_transform_matrix(Transform2D.IDENTITY)
 
 
-func _draw_cone(origin: Vector2, facing: float, cone: float, radius: float, fill: Color, line: Color, smokes: Array) -> void:
+func _draw_cone(origin: Vector2, facing: float, cone: float, radius: float, fill: Color, line: Color, fogs: Array) -> void:
 	var steps := maxi(3, int(ceil(cone / deg_to_rad(3.0))))
 	var pts := PackedVector2Array([origin])
 	for i in steps + 1:
 		var a := facing - cone * 0.5 + cone * float(i) / steps
 		var d := Vector2.from_angle(a)
-		pts.append(origin + d * game.map.sight_distance(origin, d, radius, smokes))
+		pts.append(origin + d * game.map.sight_distance(origin, d, radius, fogs))
 	var cols := PackedColorArray([fill, fill, fill])
 	for i in steps:
 		draw_primitive(PackedVector2Array([pts[0], pts[i + 1], pts[i + 2]]), cols, PackedVector2Array())

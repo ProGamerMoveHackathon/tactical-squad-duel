@@ -21,8 +21,8 @@ func _init() -> void:
 		["stop", Voice.CmdType.HALT, -2, null],
 		["alpha halt", Voice.CmdType.HALT, 0, null],
 		["squad hold", Voice.CmdType.HALT, -1, null],
-		["smoke", Voice.CmdType.ABILITY, -2, Cfg.Ability.SMOKE],
-		["smoke mid", Voice.CmdType.ABILITY, -2, Cfg.Ability.SMOKE],
+		["fog", Voice.CmdType.ABILITY, -2, Cfg.Ability.FOG],
+		["cast fog", Voice.CmdType.ABILITY, -2, Cfg.Ability.FOG],
 		["scan", Voice.CmdType.ABILITY, -2, Cfg.Ability.SCAN],
 		["suppress", Voice.CmdType.ABILITY, -2, Cfg.Ability.SUPPRESS],
 		["squad rush", Voice.CmdType.ABILITY, -1, Cfg.Ability.RUSH],
@@ -40,7 +40,7 @@ func _init() -> void:
 		["bravo go to kitchen", Voice.CmdType.MOVE_CALLOUT, 1, "north"],
 		["charlie to tables", Voice.CmdType.MOVE_CALLOUT, 2, "south"],
 		["advance to kasse", Voice.CmdType.MOVE_CALLOUT, -2, "flank"],
-		["smoke buffet", Voice.CmdType.ABILITY, -2, Cfg.Ability.SMOKE],
+		["fog buffet", Voice.CmdType.ABILITY, -2, Cfg.Ability.FOG],
 	]
 
 	var passed := 0

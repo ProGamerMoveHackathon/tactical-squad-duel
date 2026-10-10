@@ -4,6 +4,7 @@ extends Control
 const Cfg = preload("res://scripts/config.gd")
 
 const BAR_H := 108.0
+const CARD_SHAKE_STEPS := [Vector2(-3, 1), Vector2(3, -1), Vector2(-2, -2), Vector2(2, 2), Vector2(-1, 1), Vector2(1, -1)]
 
 var game  # ClientGame
 var font: Font
@@ -39,23 +40,31 @@ func _text_center(center_x: float, y: float, text: String, fs: int, col := Color
 
 func _hit_alert_strength(unit_idx: int) -> float:
 	var strength := 0.0
-	for hit in game.hurts:
+	for hit in game.card_hits:
 		if int(hit.get("idx", -1)) == unit_idx and int(hit.get("dmg", 0)) > 0:
-			strength = maxf(strength, clampf(float(hit.get("t", 0.0)) / 1.2, 0.0, 1.0))
+			strength = maxf(strength, clampf(float(hit.get("t", 0.0)) / 0.75, 0.0, 1.0))
 	return strength
 
 
-func _draw_pixel_hit_alert(pos: Vector2, alpha: float) -> void:
-	# Block-built punctuation keeps the warning crisp at the HUD's pixel scale.
-	var bounce := -2.0 if int(game.time * 12.0) % 2 == 0 else 0.0
-	var p := pos + Vector2(0.0, bounce)
+func _shot_alert_strength(unit_idx: int) -> float:
+	var strength := 0.0
+	for shot in game.card_shots:
+		if int(shot.get("idx", -1)) == unit_idx:
+			strength = maxf(strength, clampf(float(shot.get("t", 0.0)) / 0.65, 0.0, 1.0))
+	return strength
+
+
+func _draw_pixel_card_alert(pos: Vector2, alpha: float, main_color: Color, accent_color: Color) -> void:
+	# Block-built punctuation stays wholly inside the portrait frame.
+	var p := pos
 	var shadow := Color(0.02, 0.015, 0.02, 0.82 * alpha)
-	var red := Color(1.0, 0.08, 0.035, alpha)
-	var hot := Color(1.0, 0.78, 0.12, alpha)
-	draw_rect(Rect2(p - Vector2(2, 2), Vector2(9, 16)), shadow)
-	draw_rect(Rect2(p, Vector2(5, 9)), red)
-	draw_rect(Rect2(p + Vector2(0, 11), Vector2(5, 3)), hot)
-	draw_rect(Rect2(p + Vector2(1, 1), Vector2(1, 6)), Color(1.0, 0.55, 0.28, alpha))
+	var main := Color(main_color.r, main_color.g, main_color.b, alpha)
+	var accent := Color(accent_color.r, accent_color.g, accent_color.b, alpha)
+	draw_rect(Rect2(p - Vector2(2, 2), Vector2(11, 27)), shadow)
+	draw_rect(Rect2(p, Vector2(7, 15)), main)
+	draw_rect(Rect2(p, Vector2(7, 4)), accent)
+	draw_rect(Rect2(p + Vector2(0, 18), Vector2(7, 5)), accent)
+	draw_rect(Rect2(p + Vector2(1, 1), Vector2(2, 10)), Color(1.0, 0.95, 0.62, alpha))
 
 
 func _draw() -> void:
@@ -74,6 +83,14 @@ func _draw() -> void:
 	# Soldier cards
 	for i in Cfg.SQUAD_SIZE:
 		var o: Dictionary = game.own[i] if i < game.own.size() else {}
+		var hit_alert := _hit_alert_strength(i)
+		var shot_alert := _shot_alert_strength(i)
+		var motion_alert := maxf(hit_alert, shot_alert)
+		var shake_strength := clampf((motion_alert - 0.52) / 0.48, 0.0, 1.0)
+		var shake := Vector2.ZERO
+		if shake_strength > 0.0:
+			shake = CARD_SHAKE_STEPS[(int(game.time * 48.0) + i * 3) % CARD_SHAKE_STEPS.size()] * shake_strength
+		draw_set_transform(shake)
 		var x := 6.0 + i * 158.0
 		var r := Rect2(x, top + 7, 152, 94)
 		var alive: bool = o.get("alive", true)
@@ -86,23 +103,27 @@ func _draw() -> void:
 			draw_rect(r, Color(1.0, 0.83, 0.28, 1.0), false, 3.0)
 		_text(Vector2(x + 8, top + 22), "EHT züri", 10, Color(0.02, 0.025, 0.035) if alive else Color(0.4, 0.4, 0.42))
 		var equipped_badges: Array = game.equipped_abilities(i)
-		const ABILITY_BADGES := ["SM", "SC", "SU", "RU"]
+		const ABILITY_BADGES := ["FG", "SC", "SU", "RU"]
 		for badge_idx in mini(3, equipped_badges.size()):
-			var badge_x := x + 77 + badge_idx * 13.0
-			draw_rect(Rect2(badge_x, top + 11, 11, 12), Color(0.1, 0.36, 0.58) if alive else Color(0.34, 0.34, 0.36))
-			_text(Vector2(badge_x + 1, top + 20), ABILITY_BADGES[equipped_badges[badge_idx]], 5, Color.WHITE if alive else Color(0.72, 0.72, 0.74))
-		var hit_alert := _hit_alert_strength(i) if alive else 0.0
-		var hit_pulse := hit_alert * (0.45 + 0.55 * absf(sin(game.time * 18.0)))
+			var equipped_ability: int = equipped_badges[badge_idx]
+			var badge_cd: float = game.cooldowns[equipped_ability] if equipped_ability < game.cooldowns.size() else 0.0
+			var badge_x := x + 60 + badge_idx * 18.0
+			var badge_ready := alive and badge_cd <= 0.0
+			draw_rect(Rect2(badge_x, top + 9, 17, 14), Color(0.1, 0.36, 0.58) if badge_ready else Color(0.34, 0.34, 0.36))
+			var badge_text: String = "%d" % ceili(badge_cd) if badge_cd > 0.0 else ABILITY_BADGES[equipped_ability]
+			_text(Vector2(badge_x, top + 19), badge_text, 6, Color.WHITE if alive else Color(0.72, 0.72, 0.74), HORIZONTAL_ALIGNMENT_CENTER, 17)
+		var show_red := hit_alert > 0.0
+		if hit_alert > 0.0 and shot_alert > 0.0:
+			show_red = int(game.time * 8.0) % 2 == 0
+		var alert_strength := hit_alert if show_red else shot_alert
+		var alert_pulse := alert_strength * (0.65 + 0.35 * absf(sin(game.time * 18.0)))
+		var alert_color := Color(1.0, 0.055, 0.025) if show_red else Color(1.0, 0.72, 0.04)
+		var alert_accent := Color(1.0, 0.78, 0.12) if show_red else Color(1.0, 0.98, 0.55)
 		if portrait_texture:
 			var photo_rect := Rect2(x + 116, top + 25, 28, 44)
 			draw_rect(photo_rect.grow(2.0), Color(0.96, 0.97, 0.98) if alive else Color(0.45, 0.45, 0.47))
 			var portrait_source := Rect2(Vector2((i % 3) * 512 + 64, (i / 3) * 512), Vector2(384, 512))
 			draw_texture_rect_region(portrait_texture, photo_rect, portrait_source, Color.WHITE if alive else Color(0.38, 0.38, 0.4, 0.8))
-			if hit_alert > 0.0:
-				draw_rect(photo_rect, Color(1.0, 0.02, 0.015, 0.52 * hit_pulse))
-				draw_rect(photo_rect.grow(2.0), Color(1.0, 0.08, 0.035, hit_pulse), false, 2.0)
-		if hit_alert > 0.0:
-			_draw_pixel_hit_alert(Vector2(x + 108, top + 29), hit_pulse)
 		var w: Dictionary = Cfg.WEAPONS[Cfg.SQUAD_WEAPONS[i]]
 		var ink := Color(0.025, 0.035, 0.055) if alive else Color(0.28, 0.28, 0.3)
 		_text(Vector2(x + 10, top + 47), "%d" % (i + 1), 13, my_col if alive else Color(0.4, 0.4, 0.4))
@@ -133,6 +154,15 @@ func _draw() -> void:
 		_text(Vector2(x + 10, top + 96), "xx-xxx-xxx VSETH", 6, Color(0.04, 0.05, 0.07))
 		_text(Vector2(x + 91, top + 96), "S", 27, Color(0.02, 0.025, 0.035))
 		_text(Vector2(x + 111, top + 86), card_date, 6, Color(0.04, 0.05, 0.07))
+		if alert_strength > 0.0:
+			var alert_fill := alert_color
+			alert_fill.a = 0.38 * alert_pulse
+			var alert_border := alert_color
+			alert_border.a = alert_pulse
+			draw_rect(r, alert_fill)
+			draw_rect(r, alert_border, false, 3.0)
+			_draw_pixel_card_alert(Vector2(x + 126, top + 34), alert_pulse, alert_color, alert_accent)
+		draw_set_transform(Vector2.ZERO)
 
 	# Ability cards
 	var ab_x := 642.0
@@ -145,7 +175,7 @@ func _draw() -> void:
 		var cd: float = game.cooldowns[a] if a < game.cooldowns.size() else 0.0
 		var ready_casters: int = game.ready_ability_casters(a)
 		var is_ready := cd <= 0.0 and ready_casters > 0
-		draw_rect(r, Color(0.15, 0.2, 0.17) if is_ready else Color(0.12, 0.12, 0.14))
+		draw_rect(r, Color(0.15, 0.2, 0.17) if is_ready else Color(0.19, 0.19, 0.21))
 		if not is_ready:
 			var frac := clampf(cd / float(def["cooldown"]), 0.0, 1.0)
 			draw_rect(Rect2(x, top + 7, 76 * frac, 94), Color(0, 0, 0, 0.45))
@@ -158,10 +188,10 @@ func _draw() -> void:
 		_text(Vector2(x + 44, top + 34), "%d MP" % int(def["mp_cost"]), 9, Color(0.4, 0.72, 1.0))
 		if is_ready:
 			_text(Vector2(x + 8, top + 84), "say \"%s\"" % def["name"].to_lower(), 10, Color(0.6, 0.9, 0.7))
-		elif ready_casters == 0:
-			_text(Vector2(x + 8, top + 84), "MP CHARGING", 9, Color(0.35, 0.72, 1.0))
+		elif cd > 0.0:
+			_text(Vector2(x + 8, top + 84), "COOL %.1fs" % cd, 10, Color(0.82, 0.72, 0.48))
 		else:
-			_text(Vector2(x + 8, top + 84), "%.1fs" % cd, 12, Color(0.9, 0.6, 0.4))
+			_text(Vector2(x + 8, top + 84), "MP CHARGING", 9, Color(0.35, 0.72, 1.0))
 
 	# Voice + enemy status
 	var vx := 896.0

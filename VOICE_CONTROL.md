@@ -57,7 +57,7 @@ $$\mathbf{[Subject]} \longrightarrow \mathbf{[Action]} \longrightarrow \mathbf{[
 - **Squad Formations**: *"Squad move to Mid"*, *"All fall back to Base"*
 - **Directional Steps**: *"Move North"*, *"Advance"*, *"Step back"*, *"Fall back"*
 - **Aiming & Watching**: *"Watch North"*, *"Face East"*, *"Cover Mid"*, *"Hold angle"*
-- **Abilities**: *"Smoke Mid"*, *"Scan"*, *"Suppress"*, *"Squad rush"*
+- **Abilities**: *"Fog"*, *"Scan"*, *"Suppress"*, *"Squad rush"*
 - **Stop**: *"Stop"*, *"Halt"*, *"Hold position"*, *"Stay"*
 - **Match Progression**: *"Deploy"*, *"Start"*, *"Rematch"*, *"Play again"*
 
@@ -73,7 +73,7 @@ $$\mathbf{[Subject]} \longrightarrow \mathbf{[Action]} \longrightarrow \mathbf{[
 | **Directional Steps** | `"Advance"`, `"Push forward"`<br>`"Fall back"`, `"Retreat"`<br>`"Step North"`, `"Move South"` | Steps ~140 pixels in that compass direction. |
 | **Halt / Hold** | `"Stop"`<br>`"Alpha halt"`<br>`"Squad hold position"` | Cancels waypoints and immediately stops moving. |
 | **Watch / Aim Angle** | `"Watch North"`<br>`"Aim South"`<br>`"Bravo watch Mid"`<br>`"Cover East"` | Rotates firing cone to guard that direction or landmark. |
-| **Targeted Abilities** | `"Smoke Mid"`<br>`"Pop smoke"`<br>`"Charlie smoke"` | Deploys vision-blocking smoke at the target landmark or ahead. |
+| **Fog Magic** | `"Fog"`<br>`"Cast fog"`<br>`"Charlie fog"` | Conjures vision-blocking fog just ahead of each eligible caster. |
 | **Squad Abilities** | `"Scan"`<br>`"Suppress"`<br>`"Squad rush"` | Casts ability with server cooldown check & audio chirp. |
 | **Match Flow** | `"Deploy"`, `"Ready"`, `"Start"`<br>`"Rematch"`, `"Play again"` | Connects to lobby or requests an instant rematch after match ends. |
 
@@ -144,7 +144,7 @@ The user interface keeps you informed of speech recognition in real time:
 |                                                                                         |
 |                                     [BATTLEFIELD]                                       |
 |                                                                                         |
-| [1 Alpha]   [2 Bravo]   [3 Charlie]     [Q Smoke] [E Scan] [R Supp] [F Rush]  (o) Voice |
+| [1 Alpha]   [2 Bravo]   [3 Charlie]        [W/E/R equipped abilities]          (o) Voice |
 |   Rifle       SMG        Shotgun                                              heard: "" |
 +-----------------------------------------------------------------------------------------+
 ```
@@ -173,7 +173,7 @@ The user interface keeps you informed of speech recognition in real time:
 3. **Compound Orders**: You can chain thoughts:
    - *"Alpha"* (pause 0.2s) *"Mid"*
    - *"Watch North"*
-   - *"Smoke Mid"*
+   - *"Cast fog"*
 4. **Squad Formations**: Use squad orders to coordinate:
    - *"Squad advance to Mid"* sends all 3 soldiers toward the center in a staggered formation.
    - *"Stop"* halts all movement instantly if you hear gunfire.
@@ -223,7 +223,7 @@ Output:
   [PASS] bravo go to north            -> type=2 subj=1 param=north
   [PASS] charlie advance to choke     -> type=2 subj=2 param=choke
   [PASS] watch north                  -> type=4 subj=-2 param=north
-  [PASS] smoke mid                    -> type=7 subj=-2 param=0
+  [PASS] cast fog                     -> type=7 subj=-2 param=0
   ...
 Test results: 27 passed, 0 failed.
 ```

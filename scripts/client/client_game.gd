@@ -34,7 +34,7 @@ var enemies := {}      # idx -> Dictionary
 var ghosts := []       # last known enemy positions
 var scanned := []      # [[idx, pos]]
 var enemy_alive := [true, true, true, true]
-var smokes := []       # [[pos, r, t_left]]
+var fogs := []         # [[pos, r, t_left]]
 var cooldowns := [0.0, 0.0, 0.0, 0.0]
 var names := ["", ""]
 var rematch_votes := [false, false]
@@ -46,6 +46,8 @@ var time := 0.0
 var tracers := []
 var magic_particles := []
 var hurts := []
+var card_hits := []
+var card_shots := []
 var corpses := []
 var scan_fx := []
 var messages := []
@@ -140,7 +142,7 @@ func _setup_debug_hooks() -> void:
 			var target := Cfg.WORLD_SIZE * 0.5 + Vector2(randf_range(-200, 60) * (1 if slot == 0 else -1), randf_range(-200, 200))
 			Net.c_move.rpc_id(1, target, false)
 			if step[0] == 4:
-				_use_ability(Cfg.Ability.SMOKE, false)
+				_use_ability(Cfg.Ability.FOG, false)
 			if step[0] == 5:
 				_use_ability(Cfg.Ability.SUPPRESS, false))
 	if _query_param("pause") != "":
@@ -316,7 +318,7 @@ func _build_menu() -> void:
 		+ "• Select: \"Alpha\", \"Bravo\", \"Charlie\", \"Delta\", \"Squad\"\n" \
 		+ "• Move: \"Alpha to Mid\", \"Advance to North\", \"Fall back to Base\", \"Stop\"\n" \
 		+ "• Aim: \"Watch North\", \"Watch Mid\", \"Aim South\"\n" \
-		+ "• Abilities: \"Smoke Mid\", \"Scan\", \"Suppress\", \"Squad Rush\"\n" \
+		+ "• Abilities: \"Cast Fog\", \"Scan\", \"Suppress\", \"Squad Rush\"\n" \
 		+ "• Match: \"Deploy\", \"Rematch\"\n\n" \
 		+ "Fallback: LMB move · RMB face · 1-4 / numpad select · W E R ability slots · V mic toggle"
 	help.add_theme_font_size_override("font_size", 12)
@@ -695,7 +697,7 @@ func _build_pause_menu() -> void:
 	controls_title.add_theme_font_size_override("font_size", 20)
 	controls.add_child(controls_title)
 	var help := Label.new()
-	help.text = "1–4 / Numpad: select soldier\nTab: next living soldier\nLeft click: move / select\nRight click: face direction\nQ: smoke · E: scan\nR: suppress · F: rush\nV: voice toggle\nEscape: close menu"
+	help.text = "1–4 / Numpad: select soldier\nTab: next living soldier\nLeft click: move / select\nRight click: face direction\nW/E/R: equipped abilities\nSay: fog · scan · suppress · rush\nV: voice toggle\nEscape: close menu"
 	help.add_theme_color_override("font_color", Color(0.9, 0.96, 1.0))
 	controls.add_child(help)
 
@@ -888,6 +890,8 @@ func _reset_round_visuals() -> void:
 	tracers.clear()
 	magic_particles.clear()
 	hurts.clear()
+	card_hits.clear()
+	card_shots.clear()
 	corpses.clear()
 	scan_fx.clear()
 
@@ -964,7 +968,7 @@ func _on_snapshot(d: Dictionary) -> void:
 			enemies.erase(idx)
 	scanned = d["sc"]
 	enemy_alive = d["ea"]
-	smokes = d["sm"]
+	fogs = d["fg"]
 	cooldowns = d["cd"]
 	rematch_votes = d["rm"]
 	names = d["names"]
@@ -982,9 +986,10 @@ func _handle_event(ev: Array) -> void:
 		"ability":
 			var a: int = ev[1]
 			ability_flash[a] = 1.0
-			var weapon_name: String = Cfg.WEAPONS[Cfg.SQUAD_WEAPONS[ev[2]]]["name"]
+			var caster_name := _soldier_name(ev[2]).capitalize()
 			var caster_count: int = ev[4] if ev.size() > 4 else 1
-			_msg("%s! (%d caster%s, %s%s)" % [Cfg.ABILITIES[a]["name"], caster_count, "" if caster_count == 1 else "s", weapon_name, ", voice" if ev[3] else ""], Color(0.5, 1.0, 0.7))
+			var caster_label := caster_name if caster_count == 1 else "%s + %d squadmates" % [caster_name, caster_count - 1]
+			_msg("%s! (%s%s)" % [Cfg.ABILITIES[a]["name"], caster_label, ", voice" if ev[3] else ""], Color(0.5, 1.0, 0.7))
 			sfx.play("ability", -6.0)
 		"scan":
 			scan_fx.append({"origin": ev[1], "radius": ev[2], "t": 1.0, "max": 1.0})
@@ -993,6 +998,8 @@ func _handle_event(ev: Array) -> void:
 			var team: int = ev[1]
 			var weapon: int = Cfg.SQUAD_WEAPONS[ev[2]]
 			var from: Vector2 = ev[3]
+			if team == slot:
+				card_shots.append({"idx": ev[2], "t": 0.65})
 			var spell_color := Color(0.12, 0.92, 1.0) if team == slot else Color(1.0, 0.16, 0.72)
 			for end in ev[4]:
 				tracers.append({"a": from, "b": end, "t": 0.26, "max": 0.26,
@@ -1009,15 +1016,17 @@ func _handle_event(ev: Array) -> void:
 				var incoming_dir := Vector2.from_angle(ev[2])
 				_spawn_magic_burst(own[ev[1]]["disp"] + incoming_dir * Cfg.SOLDIER_RADIUS, Color(1.0, 0.18, 0.72), -incoming_dir, 9)
 			sfx.play("cast_fast" if ev[3] == 0 else "hit", -12.0 if ev[3] == 0 else -4.0)
+		"card_hit":
+			card_hits.append({"idx": ev[1], "dmg": ev[2], "t": 0.75})
 		"kill":
 			var team: int = ev[1]
 			var idx: int = ev[2]
 			corpses.append({"pos": ev[3], "team": team, "idx": idx})
-			var wname: String = Cfg.WEAPONS[Cfg.SQUAD_WEAPONS[idx]]["name"]
+			var character_name := _soldier_name(idx).capitalize()
 			if team == slot:
-				_msg("Your %s is down!" % wname, Color(1.0, 0.4, 0.3))
+				_msg("%s is down!" % character_name, Color(1.0, 0.4, 0.3))
 			else:
-				_msg("Enemy %s eliminated!" % wname, Color(0.5, 1.0, 0.5))
+				_msg("Enemy %s eliminated!" % character_name, Color(0.5, 1.0, 0.5))
 			sfx.play("kill", -3.0)
 
 
@@ -1041,9 +1050,9 @@ func _spawn_magic_burst(at: Vector2, col: Color, direction: Vector2, amount: int
 		})
 
 
-func smoke_list() -> Array:
+func fog_list() -> Array:
 	var out := []
-	for s in smokes:
+	for s in fogs:
 		out.append([s[0], s[1]])
 	return out
 
@@ -1069,6 +1078,8 @@ func _process(dt: float) -> void:
 	_tick_list(tracers, dt)
 	_tick_magic_particles(dt)
 	_tick_list(hurts, dt)
+	_tick_list(card_hits, dt)
+	_tick_list(card_shots, dt)
 	_tick_list(scan_fx, dt)
 	_tick_list(ghosts, dt)
 	_tick_list(messages, dt)
@@ -1217,6 +1228,10 @@ func _use_ability(ability: int, via_voice: bool) -> bool:
 
 
 func _use_ability_at(ability: int, target: Vector2, via_voice: bool) -> bool:
+	if ability < cooldowns.size() and cooldowns[ability] > 0.0:
+		_msg("%s is cooling down (%.1fs)" % [Cfg.ABILITIES[ability]["name"], cooldowns[ability]], Color(0.72, 0.72, 0.76))
+		sfx.play("deny", -8.0)
+		return false
 	if ready_ability_casters(ability) == 0:
 		_msg("No ready squad member can cast %s" % Cfg.ABILITIES[ability]["name"], Color(0.35, 0.72, 1.0))
 		sfx.play("deny", -8.0)

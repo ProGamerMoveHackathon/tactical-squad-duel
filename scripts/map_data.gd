@@ -1,6 +1,6 @@
 extends RefCounted
 ## Map geometry shared by server and client: wall grid, line of sight (grid DDA
-## raycasts), smoke occlusion, circle collision and A* pathfinding.
+## raycasts), fog occlusion, circle collision and A* pathfinding.
 ## The map is point-symmetric (180 degree rotation about the centre) so both
 ## teams get exactly the same layout.
 
@@ -195,11 +195,11 @@ func raycast(o: Vector2, d: Vector2, max_d: float) -> float:
 	return max_d
 
 
-## Clip a ray (origin, unit dir, current length) by smoke clouds.
-## smokes: Array of [Vector2 centre, float radius]
-static func smoke_clip(o: Vector2, d: Vector2, length: float, smokes: Array) -> float:
+## Clip a ray (origin, unit dir, current length) by fog clouds.
+## fogs: Array of [Vector2 centre, float radius]
+static func fog_clip(o: Vector2, d: Vector2, length: float, fogs: Array) -> float:
 	var best := length
-	for s in smokes:
+	for s in fogs:
 		var c: Vector2 = s[0]
 		var r: float = s[1]
 		var oc := c - o
@@ -211,26 +211,26 @@ static func smoke_clip(o: Vector2, d: Vector2, length: float, smokes: Array) -> 
 		var t0 := proj - half
 		var t1 := proj + half
 		var enter := maxf(t0, 0.0)
-		if t1 - enter > Cfg.SMOKE_SEE_DEPTH:
-			best = minf(best, enter + Cfg.SMOKE_SEE_DEPTH)
+		if t1 - enter > Cfg.FOG_SEE_DEPTH:
+			best = minf(best, enter + Cfg.FOG_SEE_DEPTH)
 	return best
 
 
-## Visible distance along a ray, considering walls and smoke.
-func sight_distance(o: Vector2, d: Vector2, max_d: float, smokes: Array) -> float:
+## Visible distance along a ray, considering walls and fog.
+func sight_distance(o: Vector2, d: Vector2, max_d: float, fogs: Array) -> float:
 	var dist := raycast(o, d, max_d)
-	if not smokes.is_empty():
-		dist = smoke_clip(o, d, dist, smokes)
+	if not fogs.is_empty():
+		dist = fog_clip(o, d, dist, fogs)
 	return dist
 
 
-func has_los(a: Vector2, b: Vector2, smokes: Array) -> bool:
+func has_los(a: Vector2, b: Vector2, fogs: Array) -> bool:
 	var diff := b - a
 	var length := diff.length()
 	if length < 0.001:
 		return true
 	var d := diff / length
-	return sight_distance(a, d, length, smokes) >= length - 0.5
+	return sight_distance(a, d, length, fogs) >= length - 0.5
 
 
 ## Is p inside the vision area of a soldier at `origin` facing `facing`?
@@ -245,8 +245,8 @@ static func in_view_shape(origin: Vector2, facing: float, p: Vector2) -> bool:
 	return absf(angle_difference(facing, diff.angle())) <= Cfg.VIEW_CONE * 0.5
 
 
-func can_see(origin: Vector2, facing: float, p: Vector2, smokes: Array) -> bool:
-	return in_view_shape(origin, facing, p) and has_los(origin, p, smokes)
+func can_see(origin: Vector2, facing: float, p: Vector2, fogs: Array) -> bool:
+	return in_view_shape(origin, facing, p) and has_los(origin, p, fogs)
 
 
 ## A circle of radius r can travel in a straight line from a to b.
