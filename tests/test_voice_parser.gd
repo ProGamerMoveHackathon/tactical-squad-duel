@@ -32,10 +32,14 @@ func _init() -> void:
 		["move south", Voice.CmdType.MOVE_CALLOUT, -2, "south"],
 		["alpha", Voice.CmdType.SELECT, 0, null],
 		["bravo", Voice.CmdType.SELECT, 1, null],
-		["charlie", Voice.CmdType.SELECT, 2, null],
 		["deploy", Voice.CmdType.DEPLOY, -2, null],
 		["rematch", Voice.CmdType.REMATCH, -2, null],
 		["rifle go to base", Voice.CmdType.MOVE_CALLOUT, 0, "base"],
+		["alpha move to buffet", Voice.CmdType.MOVE_CALLOUT, 0, "mid"],
+		["bravo go to kitchen", Voice.CmdType.MOVE_CALLOUT, 1, "north"],
+		["charlie to tables", Voice.CmdType.MOVE_CALLOUT, 2, "south"],
+		["advance to kasse", Voice.CmdType.MOVE_CALLOUT, -2, "flank"],
+		["smoke buffet", Voice.CmdType.ABILITY, -2, Cfg.Ability.SMOKE],
 	]
 
 	var passed := 0

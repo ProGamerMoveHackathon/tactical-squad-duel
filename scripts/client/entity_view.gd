@@ -36,10 +36,21 @@ func _draw() -> void:
 		draw_line(p + Vector2(-7, -7), p + Vector2(7, 7), col, 3.0)
 		draw_line(p + Vector2(-7, 7), p + Vector2(7, -7), col, 3.0)
 
+	const POLY_BADGES := {
+		"base": "ZUGANG",
+		"yard": "TRAYS",
+		"choke": "CHOKE",
+		"flank": "KASSE",
+		"pillar": "PILLAR",
+		"mid": "BUFFET",
+		"north": "KÜCHE",
+		"south": "TABLES",
+		"enemy": "AUSGANG",
+	}
 	# Tactical Callout Landmarks (always visible for voice navigation)
 	for cid in game.map.CALLOUT_POSITIONS:
 		var cp: Vector2 = game.map.callout_position(cid, my_team)
-		_draw_callout_badge(cp, cid.to_upper())
+		_draw_callout_badge(cp, POLY_BADGES.get(cid, cid.to_upper()))
 
 	# Own firing cones (clipped by walls / smoke)
 	for o in game.own:

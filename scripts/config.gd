@@ -63,15 +63,15 @@ const VOICE_SUBJECTS := {
 }
 
 const VOICE_CALLOUTS := {
-	"mid": ["mid", "middle", "center", "centre"],
-	"north": ["north", "top", "upper"],
-	"south": ["south", "bottom", "lower"],
-	"base": ["base", "home", "spawn", "headquarters"],
-	"yard": ["yard", "courtyard", "patio"],
-	"choke": ["choke", "door", "bridge", "gate"],
-	"flank": ["flank", "alley", "side"],
-	"pillar": ["pillar", "cover", "box", "rock"],
-	"enemy": ["enemy", "enemy base", "their base", "push deep", "deep"],
+	"mid": ["mid", "middle", "center", "centre", "buffet", "salad", "salad bar"],
+	"north": ["north", "top", "upper", "kitchen", "kuche", "prep"],
+	"south": ["south", "bottom", "lower", "dining", "tables", "terrasse", "polyterrasse"],
+	"base": ["base", "home", "spawn", "entrance", "zugang", "west"],
+	"yard": ["yard", "courtyard", "patio", "tray", "trays", "tablett"],
+	"choke": ["choke", "door", "bridge", "gate", "kitchen door"],
+	"flank": ["flank", "alley", "side", "kasse", "cashier", "checkout"],
+	"pillar": ["pillar", "cover", "box", "rock", "column", "post"],
+	"enemy": ["enemy", "enemy base", "their base", "exit", "ausgang", "east"],
 }
 
 const VOICE_DIRECTIONS := {

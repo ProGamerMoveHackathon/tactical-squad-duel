@@ -79,42 +79,42 @@ $$\mathbf{[Subject]} \longrightarrow \mathbf{[Action]} \longrightarrow \mathbf{[
 
 ---
 
-## 🗺️ Tactical Landmarks & Callout Map
+## 🗺️ Tactical Landmarks & Callout Map (ETH Zürich Polymensa)
 
-The symmetrical arena is divided into 9 named landmarks rendered directly on screen with cyan military badges `[NAME]`:
+The battlefield is modeled directly after the **ETH Polymensa (Geschoss F)** architectural floor plan, featuring 9 named tactical landmarks rendered directly on screen with cyan badges `[NAME]`:
 
 ```
 +---------------------------------------------------------------------------------+
-|                                    [NORTH]                                      |
-|                                (Upper Corridor)                                 |
+|                                    [KÜCHE]                                      |
+|                        (Kitchen & Food Prep Corridor)                           |
 |                                                                                 |
 |       [CHOKE]                                                   [ENEMY CHOKE]   |
-|     (Upper Door)                                                                |
+|   (Kitchen Door)                                                                |
 |                                                                                 |
-|                    [PILLAR]                       [ENEMY PILLAR]                |
-|                    (Cover)                            (Cover)                   |
+|                    [PILLAR]                                                     |
+|                    (Column)                                                     |
 |                                                                                 |
-| [BASE]   [YARD]                    [MID]                                [ENEMY] |
-| (Spawn)  (Patio)                 (Center)                               (Spawn) |
+| [ZUGANG]   [TRAYS]                 [BUFFET]                            [AUSGANG]|
+| (Entrance) (Tablett)         (Salad Bar / Mid)                          (Exit)  |
 |                                                                                 |
-|       [FLANK]                                                   [ENEMY FLANK]   |
-|     (Lower Door)                                                                |
+|       [KASSE]                                                   [ENEMY KASSE]   |
+|     (Cashiers)                                                                  |
 |                                                                                 |
-|                                    [SOUTH]                                      |
-|                                (Lower Corridor)                                 |
+|                                   [TABLES]                                      |
+|                       (Polyterrasse Dining Hall)                                |
 +---------------------------------------------------------------------------------+
 ```
 
-### Callout Descriptions
-- **`[BASE]`**: Your friendly spawn courtyard (always on the left).
-- **`[YARD]`**: Open staging area outside your spawn before the chokepoints.
-- **`[CHOKE]`**: Upper doorway leading into the central arena.
-- **`[FLANK]`**: Lower passage leading into the central arena.
-- **`[PILLAR]`**: Stone column cover on your side of the centre.
-- **`[MID]`**: The exact center of the map—primary contested control point.
-- **`[NORTH]`**: Upper long corridor ideal for long-range Rifle duels.
-- **`[SOUTH]`**: Lower corridor ideal for SMG and Shotgun flanking maneuvers.
-- **`[ENEMY]`**: The opponent's spawn courtyard on the opposite side.
+### Callout Descriptions & Spoken Synonyms
+- **`[ZUGANG]` / Base**: West entrance lobby (`"Base"`, `"Zugang"`, `"Entrance"`).
+- **`[TRAYS]` / Yard**: Free-Flow tray dispensers (`"Trays"`, `"Tablett"`, `"Yard"`).
+- **`[CHOKE]` / Kitchen Door**: Doorway into the northern kitchen (`"Choke"`, `"Kitchen door"`).
+- **`[KASSE]` / Flank**: Register checkouts dividing servery from dining (`"Kasse"`, `"Cashier"`, `"Flank"`).
+- **`[PILLAR]`**: Concrete structural column providing heavy cover (`"Pillar"`, `"Column"`).
+- **`[BUFFET]` / Mid**: The central salad bar and warm buffet islands (`"Buffet"`, `"Salad"`, `"Mid"`).
+- **`[KÜCHE]` / North**: Upper kitchen corridor ideal for long-range Rifle duels (`"Küche"`, `"Kitchen"`, `"North"`).
+- **`[TABLES]` / South**: Great Polyterrasse dining hall with wooden table booths (`"Tables"`, `"Dining"`, `"South"`).
+- **`[AUSGANG]` / Enemy**: East exit lobby and opponent spawn (`"Ausgang"`, `"Exit"`, `"Enemy base"`).
 
 ---
 
