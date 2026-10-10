@@ -11,6 +11,7 @@
 1. [Game Concept & Features](#-game-concept--features)
 2. [Quick Start: Run the Game in 10 Seconds](#-quick-start-run-the-game-in-10-seconds)
 3. [Controls & Voice Commands](#-controls--voice-commands)
+   - 🎙️ **[Full Voice Control & Hands-Free Guide (VOICE_CONTROL.md)](VOICE_CONTROL.md)**
 4. [Developer Guide: How to Work on the Game](#-developer-guide-how-to-work-on-the-game)
    - [Prerequisites & Setup](#prerequisites--setup)
    - [Working in the Godot Editor](#working-in-the-godot-editor)
@@ -71,18 +72,23 @@ If you don't have Godot installed on your machine:
 
 ## 🕹️ Controls & Voice Commands
 
-| Action | Mouse / Keyboard | Voice Command (Press `V` or click *Mic*) | Description |
+> 🎙️ **100% Hands-Free Playable**: The entire game can be played solely using spoken commands.  
+> 👉 For the complete syntax guide, phonetic dictionary, and callout map, read the **[Voice Control & Tactical Command Guide](VOICE_CONTROL.md)**.
+
+| Action | Mouse / Keyboard | Spoken Voice Command | Description |
 |---|---|---|---|
-| **Move Soldier** | **Left Click** | — | Issues move command with A* obstacle avoidance. |
-| **Move & Hold Facing** | **Shift + Left Click** | — | Soldier walks to target while maintaining current facing angle. |
-| **Aim / Watch Angle** | **Right Click** or **Right-Drag** | — | Rotates firing cone to watch a corridor or doorway. |
-| **Switch Soldier** | `1`, `2`, `3`, `Tab`, or Click soldier | *"Alpha"*, *"Bravo"*, *"Charlie"* | Select active squad member (1=Rifle, 2=SMG, 3=Shotgun). |
-| **Smoke Grenade** | `Q` (targets mouse position) | *"Smoke"* | Deploys vision-blocking smoke for 9s (max throw range 340px). |
+| **Select Soldier** | `1`, `2`, `3`, `Tab`, or Click soldier | *"Alpha"*, *"Bravo"*, *"Charlie"* | Directs active squad member (1=Rifle, 2=SMG, 3=Shotgun). |
+| **Move to Landmark** | **Left Click** | *"Alpha to Mid"*, *"Bravo to North"*, *"Move to Base"* | Soldier navigates via A* pathfinding to named landmark. |
+| **Squad Move** | — | *"Squad to Mid"*, *"All fall back to Base"* | Entire squad advances or retreats in formation. |
+| **Directional Step** | — | *"Advance"*, *"Fall back"*, *"Move North"*, *"Move South"* | Takes a tactical stride (~140px) in that direction. |
+| **Halt / Stop** | — | *"Stop"*, *"Alpha halt"*, *"Squad hold"* | Cancels path and immediately holds position. |
+| **Aim / Watch Angle** | **Right Click** or **Right-Drag** | *"Watch North"*, *"Aim South"*, *"Bravo watch Mid"* | Rotates firing cone to cover that corridor or landmark. |
+| **Smoke Grenade** | `Q` | *"Smoke Mid"*, *"Pop smoke"* | Deploys vision-blocking smoke (max throw range 340px). |
 | **Motion Scan** | `E` | *"Scan"* | Emits radar pulse revealing moving enemies within 460px. |
-| **Suppressive Fire** | `R` | *"Suppress"* | Widens cone by 80%, increases fire rate by 30%, reduces accuracy for 6s. |
-| **Rush Boost** | `F` | *"Rush"* | Boosts soldier movement speed by +65% for 4s. |
+| **Suppressive Fire** | `R` | *"Suppress"* | Widens cone by 80%, increases fire rate by 30% for 6s. |
+| **Rush Boost** | `F` | *"Rush"*, *"Squad rush"* | Boosts soldier movement speed by +65% for 4s. |
+| **Join / Rematch** | `Enter` | *"Deploy"*, *"Rematch"*, *"Play again"* | Connects from lobby or requests a post-match rematch. |
 | **Toggle Microphone** | `V` or click **Mic** button | — | Starts/stops browser Web Speech recognition. |
-| **Rematch** | `Enter` | — | Vote for rematch after match concludes. |
 
 ---
 
