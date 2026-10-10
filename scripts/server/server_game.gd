@@ -21,6 +21,7 @@ class Soldier:
 	var watch_angle := 0.0
 	var facing_lock := false
 	var hp: float = Cfg.SOLDIER_HP
+	var mp: float = Cfg.SOLDIER_MP
 	var health_regen_wait := 0.0
 	var alive := true
 	var path := PackedVector2Array()
@@ -44,6 +45,8 @@ var scans := []              # {team, origin, t}
 var events := [[], []]       # per team, flushed with every snapshot
 var vis_table := [[false, false, false, false], [false, false, false, false]]  # vis_table[team][enemy idx]
 var rematch_votes := [false, false]
+var loadouts := [Cfg.DEFAULT_LOADOUTS.duplicate(), Cfg.DEFAULT_LOADOUTS.duplicate()]
+var loadout_ready := [false, false]
 var state := Cfg.State.WAITING
 var deployment := 0.0
 var countdown := 0.0
@@ -90,8 +93,8 @@ func _on_peer_connected(id: int) -> void:
 	names[slot] = "Player %d" % (slot + 1)
 	print("[server] peer %d joined as slot %d" % [id, slot])
 	Net.s_welcome.rpc_id(id, slot)
-	if peers[0] != 0 and peers[1] != 0:
-		_start_match()
+	if state == Cfg.State.WAITING:
+		_begin_loadout()
 
 
 func _on_peer_disconnected(id: int) -> void:
@@ -102,6 +105,7 @@ func _on_peer_disconnected(id: int) -> void:
 	peers[slot] = 0
 	names[slot] = ""
 	state = Cfg.State.WAITING
+	loadout_ready = [false, false]
 	_reset_squads()
 	var other := 1 - slot
 	if peers[other] != 0:
@@ -121,6 +125,40 @@ func on_hello(id: int, player_name: String) -> void:
 # --------------------------------------------------------------------------
 # Match flow
 # --------------------------------------------------------------------------
+
+func _begin_loadout() -> void:
+	_reset_squads()
+	loadout_ready = [false, false]
+	state = Cfg.State.LOADOUT
+	for t in 2:
+		if peers[t] != 0:
+			events[t].append(["msg", "Choose three abilities for every squad member."])
+
+
+func _ability_count(mask: int) -> int:
+	var count := 0
+	for ability in 4:
+		if mask & (1 << ability):
+			count += 1
+	return count
+
+
+func on_loadout(id: int, ability_masks: Array) -> void:
+	var slot := _slot_of(id)
+	if slot == -1 or state != Cfg.State.LOADOUT or ability_masks.size() != Cfg.SQUAD_SIZE:
+		return
+	var validated := []
+	for raw_mask in ability_masks:
+		var mask := int(raw_mask)
+		if mask < 0 or mask > 15 or _ability_count(mask) != 3:
+			events[slot].append(["msg", "Every character needs exactly three abilities."])
+			return
+		validated.append(mask)
+	loadouts[slot] = validated
+	loadout_ready[slot] = true
+	events[slot].append(["msg", "Loadout locked in."])
+	if peers[0] != 0 and peers[1] != 0 and loadout_ready[0] and loadout_ready[1]:
+		_start_match()
 
 func _reset_squads() -> void:
 	for team in 2:
@@ -165,7 +203,7 @@ func on_rematch(id: int) -> void:
 		return
 	rematch_votes[slot] = true
 	if rematch_votes[0] and rematch_votes[1]:
-		_start_match()
+		_begin_loadout()
 	else:
 		events[1 - slot].append(["msg", "Opponent wants a rematch! Press Enter."])
 
@@ -229,34 +267,54 @@ func on_ability(id: int, ability: int, target: Vector2, via_voice: bool) -> void
 	if state != Cfg.State.PLAYING:
 		events[slot].append(["deny", ability, "not now"])
 		return
-	if cooldowns[slot][ability] > 0.0:
-		events[slot].append(["deny", ability, "cooldown %.0fs" % ceilf(cooldowns[slot][ability])])
-		return
-	var s := _selected_soldier(slot)
-	if s == null:
-		events[slot].append(["deny", ability, "no soldier"])
+	var casters: Array[Soldier] = []
+	var equipped_alive := 0
+	var mp_cost: float = def["mp_cost"]
+	for s: Soldier in squads[slot]:
+		if not s.alive or (int(loadouts[slot][s.idx]) & (1 << ability)) == 0:
+			continue
+		equipped_alive += 1
+		if s.mp >= mp_cost:
+			casters.append(s)
+	if casters.is_empty():
+		var reason := "no living character has this ability" if equipped_alive == 0 else "MP is recharging"
+		events[slot].append(["deny", ability, reason])
 		return
 	match ability:
 		Cfg.Ability.SMOKE:
-			var diff := target - s.pos
-			var max_r: float = def["throw_range"]
-			if diff.length() > max_r:
-				target = s.pos + diff.normalized() * max_r
-			smokes.append({"pos": target, "radius": def["radius"], "t": def["duration"]})
+			for s: Soldier in casters:
+				var cast_target := _smoke_landing(s, float(def["throw_distance"]))
+				smokes.append({"pos": cast_target, "radius": def["radius"], "t": def["duration"]})
 		Cfg.Ability.SCAN:
-			scans.append({"team": slot, "origin": s.pos, "t": def["duration"]})
-			var count := 0
-			for e in squads[1 - slot]:
-				if _scan_reveals(e, s.pos):
-					count += 1
-			events[slot].append(["scan", s.pos, def["radius"], count])
+			for s: Soldier in casters:
+				scans.append({"team": slot, "origin": s.pos, "t": def["duration"]})
+				var count := 0
+				for e in squads[1 - slot]:
+					if _scan_reveals(e, s.pos):
+						count += 1
+				events[slot].append(["scan", s.pos, def["radius"], count])
 		Cfg.Ability.SUPPRESS:
-			s.suppress_t = def["duration"]
+			for s: Soldier in casters:
+				s.suppress_t = def["duration"]
 		Cfg.Ability.RUSH:
-			s.rush_t = def["duration"]
-	cooldowns[slot][ability] = def["cooldown"]
-	events[slot].append(["ability", ability, s.idx, via_voice])
-	print("[server] slot %d used %s%s" % [slot, def["name"], " (voice)" if via_voice else ""])
+			for s: Soldier in casters:
+				s.rush_t = def["duration"]
+	for s: Soldier in casters:
+		s.mp = maxf(0.0, s.mp - mp_cost)
+	events[slot].append(["ability", ability, casters[0].idx, via_voice, casters.size()])
+	print("[server] slot %d used %s with %d caster(s)%s" % [slot, def["name"], casters.size(), " (voice)" if via_voice else ""])
+
+
+func _smoke_landing(s: Soldier, throw_distance: float) -> Vector2:
+	var direction := Vector2.from_angle(s.facing)
+	var open_distance := map.raycast(s.pos, direction, throw_distance)
+	# Keep the landing point out of the wall. When cover is directly in front,
+	# this collapses to zero and the smoke is dropped at the caster's feet.
+	var wall_clearance := Cfg.SOLDIER_RADIUS + 2.0
+	var landing_distance := throw_distance
+	if open_distance < throw_distance - 0.01:
+		landing_distance = maxf(0.0, open_distance - wall_clearance)
+	return s.pos + direction * landing_distance
 
 
 func _scan_reveals(e: Soldier, origin: Vector2) -> bool:
@@ -333,6 +391,7 @@ func _simulate(dt: float) -> void:
 		if not s.alive:
 			continue
 		_advance_regeneration(s, dt)
+		s.mp = minf(Cfg.SOLDIER_MP, s.mp + Cfg.SOLDIER_MP / Cfg.MP_RECOVERY_TIME * dt)
 		s.suppress_t = maxf(0.0, s.suppress_t - dt)
 		s.rush_t = maxf(0.0, s.rush_t - dt)
 		_move_soldier(s, dt)
@@ -543,7 +602,7 @@ func _broadcast() -> void:
 		var own := []
 		for s: Soldier in squads[team]:
 			var tgt: Vector2 = s.path[s.path.size() - 1] if not s.path.is_empty() else s.pos
-			own.append([s.idx, s.pos, s.facing, s.hp, _flags(s), tgt, s.watch_angle if s.facing_lock else INF])
+			own.append([s.idx, s.pos, s.facing, s.hp, _flags(s), tgt, s.watch_angle if s.facing_lock else INF, s.mp])
 		var en := []
 		var scanned := []
 		var enemy_alive := []
@@ -572,6 +631,8 @@ func _broadcast() -> void:
 			"ev": events[team],
 			"rm": rematch_votes.duplicate(),
 			"names": names.duplicate(),
+			"lo": loadouts[team].duplicate(),
+			"rd": loadout_ready.duplicate(),
 			"conn": [peers[0] != 0, peers[1] != 0],
 		}
 		events[team] = []

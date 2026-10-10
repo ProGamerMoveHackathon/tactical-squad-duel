@@ -9,7 +9,6 @@ var game  # ClientGame
 var font: Font
 var portrait_texture: Texture2D
 var card_texture: Texture2D
-var eth_logo_texture: Texture2D
 var card_date := ""
 
 
@@ -17,7 +16,6 @@ func _ready() -> void:
 	font = ThemeDB.fallback_font
 	portrait_texture = load("res://assets/magic_student_portraits.png")
 	card_texture = load("res://assets/unit_card_eth_frame.svg")
-	eth_logo_texture = load("res://assets/eth_zurich_logo.png")
 	var today := Time.get_date_dict_from_system()
 	card_date = "%02d.%02d.%04d" % [int(today["day"]), int(today["month"]), int(today["year"])]
 	texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
@@ -37,6 +35,27 @@ func _text_center(center_x: float, y: float, text: String, fs: int, col := Color
 	if outline:
 		draw_string_outline(font, Vector2(center_x - w * 0.5, y), text, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, 6, Color(0, 0, 0, 0.8))
 	draw_string(font, Vector2(center_x - w * 0.5, y), text, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, col)
+
+
+func _hit_alert_strength(unit_idx: int) -> float:
+	var strength := 0.0
+	for hit in game.hurts:
+		if int(hit.get("idx", -1)) == unit_idx and int(hit.get("dmg", 0)) > 0:
+			strength = maxf(strength, clampf(float(hit.get("t", 0.0)) / 1.2, 0.0, 1.0))
+	return strength
+
+
+func _draw_pixel_hit_alert(pos: Vector2, alpha: float) -> void:
+	# Block-built punctuation keeps the warning crisp at the HUD's pixel scale.
+	var bounce := -2.0 if int(game.time * 12.0) % 2 == 0 else 0.0
+	var p := pos + Vector2(0.0, bounce)
+	var shadow := Color(0.02, 0.015, 0.02, 0.82 * alpha)
+	var red := Color(1.0, 0.08, 0.035, alpha)
+	var hot := Color(1.0, 0.78, 0.12, alpha)
+	draw_rect(Rect2(p - Vector2(2, 2), Vector2(9, 16)), shadow)
+	draw_rect(Rect2(p, Vector2(5, 9)), red)
+	draw_rect(Rect2(p + Vector2(0, 11), Vector2(5, 3)), hot)
+	draw_rect(Rect2(p + Vector2(1, 1), Vector2(1, 6)), Color(1.0, 0.55, 0.28, alpha))
 
 
 func _draw() -> void:
@@ -65,13 +84,25 @@ func _draw() -> void:
 			draw_rect(r, Color(0.92, 0.94, 0.98) if alive else Color(0.45, 0.45, 0.48))
 		if sel:
 			draw_rect(r, Color(1.0, 0.83, 0.28, 1.0), false, 3.0)
-		if eth_logo_texture:
-			draw_texture_rect_region(eth_logo_texture, Rect2(x + 10, top + 11, 68, 12), Rect2(35, 48, 510, 88), Color.WHITE if alive else Color(0.55, 0.55, 0.58))
+		_text(Vector2(x + 8, top + 22), "EHT züri", 10, Color(0.02, 0.025, 0.035) if alive else Color(0.4, 0.4, 0.42))
+		var equipped_badges: Array = game.equipped_abilities(i)
+		const ABILITY_BADGES := ["SM", "SC", "SU", "RU"]
+		for badge_idx in mini(3, equipped_badges.size()):
+			var badge_x := x + 77 + badge_idx * 13.0
+			draw_rect(Rect2(badge_x, top + 11, 11, 12), Color(0.1, 0.36, 0.58) if alive else Color(0.34, 0.34, 0.36))
+			_text(Vector2(badge_x + 1, top + 20), ABILITY_BADGES[equipped_badges[badge_idx]], 5, Color.WHITE if alive else Color(0.72, 0.72, 0.74))
+		var hit_alert := _hit_alert_strength(i) if alive else 0.0
+		var hit_pulse := hit_alert * (0.45 + 0.55 * absf(sin(game.time * 18.0)))
 		if portrait_texture:
 			var photo_rect := Rect2(x + 116, top + 25, 28, 44)
 			draw_rect(photo_rect.grow(2.0), Color(0.96, 0.97, 0.98) if alive else Color(0.45, 0.45, 0.47))
 			var portrait_source := Rect2(Vector2((i % 3) * 512 + 64, (i / 3) * 512), Vector2(384, 512))
 			draw_texture_rect_region(portrait_texture, photo_rect, portrait_source, Color.WHITE if alive else Color(0.38, 0.38, 0.4, 0.8))
+			if hit_alert > 0.0:
+				draw_rect(photo_rect, Color(1.0, 0.02, 0.015, 0.52 * hit_pulse))
+				draw_rect(photo_rect.grow(2.0), Color(1.0, 0.08, 0.035, hit_pulse), false, 2.0)
+		if hit_alert > 0.0:
+			_draw_pixel_hit_alert(Vector2(x + 108, top + 29), hit_pulse)
 		var w: Dictionary = Cfg.WEAPONS[Cfg.SQUAD_WEAPONS[i]]
 		var ink := Color(0.025, 0.035, 0.055) if alive else Color(0.28, 0.28, 0.3)
 		_text(Vector2(x + 10, top + 47), "%d" % (i + 1), 13, my_col if alive else Color(0.4, 0.4, 0.4))
@@ -79,8 +110,14 @@ func _draw() -> void:
 		var hp: float = o.get("hp", Cfg.SOLDIER_HP)
 		if alive:
 			var frac := hp / float(Cfg.SOLDIER_HP)
-			draw_rect(Rect2(x + 10, top + 55, 99, 8), Color(0.06, 0.08, 0.11, 0.55))
-			draw_rect(Rect2(x + 10, top + 55, 99 * frac, 8), Color(0.28, 0.95, 0.36).lerp(Color(1.0, 0.25, 0.2), 1.0 - frac))
+			_text(Vector2(x + 10, top + 54), "HP", 6, ink)
+			draw_rect(Rect2(x + 24, top + 49, 85, 5), Color(0.06, 0.08, 0.11, 0.55))
+			draw_rect(Rect2(x + 24, top + 49, 85 * frac, 5), Color(0.28, 0.95, 0.36).lerp(Color(1.0, 0.25, 0.2), 1.0 - frac))
+			var mp: float = o.get("mp", Cfg.SOLDIER_MP)
+			var mp_frac := clampf(mp / Cfg.SOLDIER_MP, 0.0, 1.0)
+			_text(Vector2(x + 10, top + 62), "MP", 6, ink)
+			draw_rect(Rect2(x + 24, top + 57, 85, 5), Color(0.025, 0.07, 0.13, 0.72))
+			draw_rect(Rect2(x + 24, top + 57, 85 * mp_frac, 5), Color(0.18, 0.58, 1.0))
 			var flags: int = o.get("flags", 0)
 			var tags := ""
 			if flags & 2: tags += "SUPP "
@@ -99,12 +136,15 @@ func _draw() -> void:
 
 	# Ability cards
 	var ab_x := 642.0
-	for a in 4:
+	var equipped: Array = game.equipped_abilities(game.selected)
+	for ability_slot in equipped.size():
+		var a: int = equipped[ability_slot]
 		var def: Dictionary = Cfg.ABILITIES[a]
-		var x := ab_x + a * 82.0
+		var x := ab_x + ability_slot * 82.0
 		var r := Rect2(x, top + 7, 76, 94)
 		var cd: float = game.cooldowns[a] if a < game.cooldowns.size() else 0.0
-		var is_ready := cd <= 0.0
+		var ready_casters: int = game.ready_ability_casters(a)
+		var is_ready := cd <= 0.0 and ready_casters > 0
 		draw_rect(r, Color(0.15, 0.2, 0.17) if is_ready else Color(0.12, 0.12, 0.14))
 		if not is_ready:
 			var frac := clampf(cd / float(def["cooldown"]), 0.0, 1.0)
@@ -113,15 +153,18 @@ func _draw() -> void:
 		if flash > 0.0:
 			draw_rect(r, Color(0.5, 1.0, 0.7, flash), false, 3.0)
 		draw_rect(Rect2(x + 8, top + 16, 24, 24), Color(0.3, 0.3, 0.35))
-		_text(Vector2(x + 14, top + 34), def["key"], 15)
+		_text(Vector2(x + 14, top + 34), Cfg.ABILITY_SLOT_KEYS[ability_slot], 15)
 		_text(Vector2(x + 8, top + 58), def["name"], 14, Color.WHITE if is_ready else Color(0.6, 0.6, 0.6))
+		_text(Vector2(x + 44, top + 34), "%d MP" % int(def["mp_cost"]), 9, Color(0.4, 0.72, 1.0))
 		if is_ready:
 			_text(Vector2(x + 8, top + 84), "say \"%s\"" % def["name"].to_lower(), 10, Color(0.6, 0.9, 0.7))
+		elif ready_casters == 0:
+			_text(Vector2(x + 8, top + 84), "MP CHARGING", 9, Color(0.35, 0.72, 1.0))
 		else:
 			_text(Vector2(x + 8, top + 84), "%.1fs" % cd, 12, Color(0.9, 0.6, 0.4))
 
 	# Voice + enemy status
-	var vx := 978.0
+	var vx := 896.0
 	var vstatus: String = game.voice.status
 	var listening: bool = game.voice.enabled and vstatus == "listening"
 	var dot_center := Vector2(vx + 10, top + 24)
@@ -154,7 +197,7 @@ func _draw() -> void:
 	var them_str: String = them if them != "" else "waiting for opponent..."
 	var tw := font.get_string_size(them_str, HORIZONTAL_ALIGNMENT_LEFT, -1, 14).x
 	_text(Vector2(vw - tw - 8, 16), them_str, 14, en_col)
-	_text_center(vw * 0.5, 16, "Voice: \"Alpha to Mid\" · \"Delta Watch North\" · \"Squad Rush\" · \"Halt\" | Fallback: LMB/RMB · 1-4 · Q E R F · V mic", 11, Color(0.8, 0.82, 0.85), false)
+	_text_center(vw * 0.5, 16, "Voice: \"Alpha to Mid\" · \"Delta Watch North\" · \"Squad Rush\" · \"Halt\" | Fallback: LMB/RMB · 1-4 · W E R · V mic", 11, Color(0.8, 0.82, 0.85), false)
 
 	# Banners
 	var by := 52.0

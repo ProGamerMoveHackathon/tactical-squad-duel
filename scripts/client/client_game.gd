@@ -38,6 +38,8 @@ var smokes := []       # [[pos, r, t_left]]
 var cooldowns := [0.0, 0.0, 0.0, 0.0]
 var names := ["", ""]
 var rematch_votes := [false, false]
+var loadout_masks := Cfg.DEFAULT_LOADOUTS.duplicate()
+var loadout_ready := [false, false]
 
 # --- Effects -------------------------------------------------------------
 var time := 0.0
@@ -53,6 +55,7 @@ var world_rotation := 0.0
 var _sel_lock_until := 0.0
 var _face_send_t := 0.0
 var _connected := false
+var _debug_loadout_sent := false
 
 # --- Nodes -----------------------------------------------------------------
 var world: Node2D
@@ -70,6 +73,13 @@ var url_edit: LineEdit
 var connect_btn: Button
 var status_label: Label
 var menu_panorama: TextureRect
+var loadout_layer: CanvasLayer
+var loadout_overlay: ColorRect
+var loadout_buttons := []
+var loadout_slot_labels := []
+var loadout_ready_button: Button
+var loadout_status: Label
+var _updating_loadout_ui := false
 var pause_layer: CanvasLayer
 var pause_overlay: ColorRect
 var pause_main_panel: VBoxContainer
@@ -89,6 +99,7 @@ func _ready() -> void:
 	_build_world()
 	_build_hud()
 	_build_menu()
+	_build_loadout()
 	_build_pause_menu()
 	Net.welcomed.connect(_on_welcome)
 	Net.snapshot_received.connect(_on_snapshot)
@@ -307,12 +318,244 @@ func _build_menu() -> void:
 		+ "• Aim: \"Watch North\", \"Watch Mid\", \"Aim South\"\n" \
 		+ "• Abilities: \"Smoke Mid\", \"Scan\", \"Suppress\", \"Squad Rush\"\n" \
 		+ "• Match: \"Deploy\", \"Rematch\"\n\n" \
-		+ "Fallback: LMB move · RMB face · 1-4 / numpad select · Q E R F abilities · V mic toggle"
+		+ "Fallback: LMB move · RMB face · 1-4 / numpad select · W E R ability slots · V mic toggle"
 	help.add_theme_font_size_override("font_size", 12)
 	help.add_theme_color_override("font_color", Color(0.82, 0.9, 0.96))
 	box.add_child(help)
 	name_edit.text_submitted.connect(func(_t): _on_connect_pressed())
 	url_edit.text_submitted.connect(func(_t): _on_connect_pressed())
+
+
+func _build_loadout() -> void:
+	loadout_layer = CanvasLayer.new()
+	loadout_layer.layer = 15
+	add_child(loadout_layer)
+	loadout_overlay = ColorRect.new()
+	loadout_overlay.color = Color(0.005, 0.012, 0.025, 0.97)
+	loadout_overlay.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	loadout_overlay.mouse_filter = Control.MOUSE_FILTER_STOP
+	loadout_layer.add_child(loadout_overlay)
+
+	var center := CenterContainer.new()
+	center.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	loadout_overlay.add_child(center)
+	var content := VBoxContainer.new()
+	content.custom_minimum_size = Vector2(1160, 650)
+	content.add_theme_constant_override("separation", 12)
+	center.add_child(content)
+
+	var title := Label.new()
+	title.text = "SQUAD LOADOUT"
+	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	title.add_theme_font_size_override("font_size", 34)
+	title.add_theme_color_override("font_color", Color(0.82, 0.95, 1.0))
+	content.add_child(title)
+	var subtitle := Label.new()
+	subtitle.text = "Choose exactly three abilities for every character"
+	subtitle.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	subtitle.add_theme_font_size_override("font_size", 16)
+	subtitle.add_theme_color_override("font_color", Color(0.52, 0.82, 0.96))
+	content.add_child(subtitle)
+
+	var cards := HBoxContainer.new()
+	cards.alignment = BoxContainer.ALIGNMENT_CENTER
+	cards.add_theme_constant_override("separation", 12)
+	cards.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	content.add_child(cards)
+	var sprite_sheet: Texture2D = load("res://assets/magic_student_sprites.png")
+	const SQUAD_NAMES := ["ALPHA", "BRAVO", "CHARLIE", "DELTA"]
+	for unit_idx in Cfg.SQUAD_SIZE:
+		var card := PanelContainer.new()
+		card.custom_minimum_size = Vector2(278, 500)
+		var card_style := StyleBoxFlat.new()
+		card_style.bg_color = Color(0.035, 0.06, 0.09, 0.98)
+		card_style.border_color = Cfg.TEAM_COLORS[0].lerp(Color.WHITE, 0.2)
+		card_style.set_border_width_all(2)
+		card_style.set_corner_radius_all(8)
+		card_style.content_margin_left = 14
+		card_style.content_margin_right = 14
+		card_style.content_margin_top = 12
+		card_style.content_margin_bottom = 12
+		card.add_theme_stylebox_override("panel", card_style)
+		cards.add_child(card)
+		var column := VBoxContainer.new()
+		column.add_theme_constant_override("separation", 7)
+		card.add_child(column)
+
+		var unit_title := Label.new()
+		unit_title.text = "%d  %s" % [unit_idx + 1, SQUAD_NAMES[unit_idx]]
+		unit_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		unit_title.add_theme_font_size_override("font_size", 22)
+		unit_title.add_theme_color_override("font_color", Color.WHITE)
+		column.add_child(unit_title)
+		var weapon_label := Label.new()
+		weapon_label.text = Cfg.WEAPONS[Cfg.SQUAD_WEAPONS[unit_idx]]["name"]
+		weapon_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		weapon_label.add_theme_color_override("font_color", Color(0.48, 0.9, 1.0))
+		column.add_child(weapon_label)
+
+		var sprite := TextureRect.new()
+		sprite.custom_minimum_size = Vector2(0, 126)
+		sprite.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+		sprite.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+		sprite.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+		var region := AtlasTexture.new()
+		region.atlas = sprite_sheet
+		region.region = Rect2(Vector2(unit_idx % 3, unit_idx / 3) * 512.0, Vector2(512, 512))
+		sprite.texture = region
+		column.add_child(sprite)
+
+		var slot_title := Label.new()
+		slot_title.text = "ABILITY SLOTS  ·  3 / 3"
+		slot_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		slot_title.add_theme_font_size_override("font_size", 12)
+		slot_title.add_theme_color_override("font_color", Color(0.72, 0.83, 0.9))
+		column.add_child(slot_title)
+		var slots := HBoxContainer.new()
+		slots.alignment = BoxContainer.ALIGNMENT_CENTER
+		slots.add_theme_constant_override("separation", 4)
+		column.add_child(slots)
+		var unit_slots := []
+		for slot_idx in 3:
+			var slot_label := Label.new()
+			slot_label.custom_minimum_size = Vector2(77, 30)
+			slot_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+			slot_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+			slot_label.add_theme_font_size_override("font_size", 10)
+			var slot_style := StyleBoxFlat.new()
+			slot_style.bg_color = Color(0.04, 0.27, 0.36)
+			slot_style.border_color = Color(0.22, 0.72, 0.92)
+			slot_style.set_border_width_all(1)
+			slot_style.set_corner_radius_all(4)
+			slot_label.add_theme_stylebox_override("normal", slot_style)
+			slots.add_child(slot_label)
+			unit_slots.append(slot_label)
+		loadout_slot_labels.append(unit_slots)
+
+		var choose_label := Label.new()
+		choose_label.text = "AVAILABLE ABILITIES"
+		choose_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		choose_label.add_theme_font_size_override("font_size", 11)
+		choose_label.add_theme_color_override("font_color", Color(0.68, 0.72, 0.77))
+		column.add_child(choose_label)
+		var choices := GridContainer.new()
+		choices.columns = 2
+		choices.add_theme_constant_override("h_separation", 6)
+		choices.add_theme_constant_override("v_separation", 6)
+		column.add_child(choices)
+		var unit_buttons := []
+		for ability in 4:
+			var button := Button.new()
+			button.text = "%s  ·  %d MP" % [Cfg.ABILITIES[ability]["name"], int(Cfg.ABILITIES[ability]["mp_cost"])]
+			button.toggle_mode = true
+			button.custom_minimum_size = Vector2(117, 42)
+			button.focus_mode = Control.FOCUS_NONE
+			_style_menu_button(button)
+			button.add_theme_font_size_override("font_size", 12)
+			button.toggled.connect(_on_loadout_toggled.bind(unit_idx, ability))
+			choices.add_child(button)
+			unit_buttons.append(button)
+		loadout_buttons.append(unit_buttons)
+
+	loadout_status = Label.new()
+	loadout_status.text = "Configure your squad while waiting for the opponent."
+	loadout_status.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	loadout_status.add_theme_font_size_override("font_size", 14)
+	loadout_status.add_theme_color_override("font_color", Color(1.0, 0.82, 0.34))
+	content.add_child(loadout_status)
+	loadout_ready_button = Button.new()
+	loadout_ready_button.text = "LOCK IN LOADOUT"
+	loadout_ready_button.custom_minimum_size = Vector2(0, 48)
+	_style_menu_button(loadout_ready_button)
+	loadout_ready_button.pressed.connect(_submit_loadout)
+	content.add_child(loadout_ready_button)
+	loadout_overlay.visible = false
+	_refresh_loadout_ui()
+
+
+func _loadout_ability_count(mask: int) -> int:
+	var count := 0
+	for ability in 4:
+		if mask & (1 << ability):
+			count += 1
+	return count
+
+
+func _on_loadout_toggled(pressed: bool, unit_idx: int, ability: int) -> void:
+	if _updating_loadout_ui or loadout_ready[slot if slot >= 0 else 0]:
+		return
+	var bit := 1 << ability
+	if pressed:
+		if _loadout_ability_count(loadout_masks[unit_idx]) >= 3:
+			loadout_status.text = "Each character has only three slots. Deselect one first."
+			_updating_loadout_ui = true
+			loadout_buttons[unit_idx][ability].button_pressed = false
+			_updating_loadout_ui = false
+			return
+		loadout_masks[unit_idx] |= bit
+	else:
+		loadout_masks[unit_idx] &= ~bit
+	_refresh_loadout_ui()
+
+
+func _refresh_loadout_ui() -> void:
+	if loadout_buttons.is_empty():
+		return
+	_updating_loadout_ui = true
+	var complete := true
+	for unit_idx in Cfg.SQUAD_SIZE:
+		var equipped := []
+		for ability in 4:
+			var selected_ability: bool = (loadout_masks[unit_idx] & (1 << ability)) != 0
+			loadout_buttons[unit_idx][ability].button_pressed = selected_ability
+			loadout_buttons[unit_idx][ability].disabled = slot >= 0 and loadout_ready[slot]
+			if selected_ability:
+				equipped.append(ability)
+		complete = complete and equipped.size() == 3
+		for slot_idx in 3:
+			loadout_slot_labels[unit_idx][slot_idx].text = "%s · %s" % [Cfg.ABILITY_SLOT_KEYS[slot_idx], Cfg.ABILITIES[equipped[slot_idx]]["name"].to_upper()] if slot_idx < equipped.size() else "%s · EMPTY" % Cfg.ABILITY_SLOT_KEYS[slot_idx]
+	_updating_loadout_ui = false
+	if loadout_ready_button:
+		var mine_ready: bool = slot >= 0 and loadout_ready[slot]
+		loadout_ready_button.disabled = not complete or mine_ready
+		loadout_ready_button.text = "LOADOUT LOCKED" if mine_ready else "LOCK IN LOADOUT"
+
+
+func _submit_loadout() -> void:
+	for mask in loadout_masks:
+		if _loadout_ability_count(mask) != 3:
+			loadout_status.text = "Every character must have exactly three abilities."
+			return
+	loadout_ready_button.disabled = true
+	loadout_status.text = "Locking in loadout..."
+	Net.c_loadout.rpc_id(1, loadout_masks.duplicate())
+
+
+func equipped_abilities(unit_idx: int) -> Array:
+	var result := []
+	if unit_idx < 0 or unit_idx >= loadout_masks.size():
+		return result
+	for ability in 4:
+		if loadout_masks[unit_idx] & (1 << ability):
+			result.append(ability)
+	return result
+
+
+func has_equipped_ability(unit_idx: int, ability: int) -> bool:
+	return unit_idx >= 0 and unit_idx < loadout_masks.size() \
+		and ability >= 0 and ability < 4 \
+		and (loadout_masks[unit_idx] & (1 << ability)) != 0
+
+
+func ready_ability_casters(ability: int) -> int:
+	var count := 0
+	var mp_cost: float = Cfg.ABILITIES[ability]["mp_cost"]
+	for unit_idx in own.size():
+		var unit: Dictionary = own[unit_idx]
+		if unit.get("alive", false) and has_equipped_ability(unit_idx, ability) \
+				and float(unit.get("mp", Cfg.SOLDIER_MP)) >= mp_cost:
+			count += 1
+	return count
 
 
 func _build_pause_menu() -> void:
@@ -547,6 +790,8 @@ func _style_menu_button(button: Button) -> void:
 func _show_menu(show: bool, status: String) -> void:
 	if show and pause_overlay != null:
 		pause_overlay.visible = false
+	if show and loadout_overlay != null:
+		loadout_overlay.visible = false
 	menu_layer.visible = show
 	world.visible = not show
 	hud_layer.visible = not show
@@ -632,7 +877,7 @@ func _reset_own() -> void:
 	own.clear()
 	for i in Cfg.SQUAD_SIZE:
 		own.append({"idx": i, "pos": Vector2.ZERO, "disp": Vector2.ZERO, "facing": 0.0, "disp_facing": 0.0,
-			"hp": Cfg.SOLDIER_HP, "flags": 8, "alive": true, "target": Vector2.ZERO, "watch": INF, "init": false})
+			"hp": Cfg.SOLDIER_HP, "mp": Cfg.SOLDIER_MP, "flags": 8, "alive": true, "target": Vector2.ZERO, "watch": INF, "init": false})
 
 
 func _reset_round_visuals() -> void:
@@ -650,6 +895,29 @@ func _reset_round_visuals() -> void:
 func _on_snapshot(d: Dictionary) -> void:
 	var prev_state := state
 	state = d["st"]
+	loadout_ready = d.get("rd", [false, false])
+	if state == Cfg.State.LOADOUT:
+		if prev_state != Cfg.State.LOADOUT or (slot >= 0 and loadout_ready[slot]):
+			loadout_masks = d.get("lo", Cfg.DEFAULT_LOADOUTS).duplicate()
+		loadout_overlay.visible = true
+		hud_layer.visible = false
+		var opponent := 1 - slot
+		var connected: Array = d.get("conn", [false, false])
+		if slot >= 0 and loadout_ready[slot]:
+			loadout_status.text = "Waiting for opponent to lock in..." if not loadout_ready[opponent] else "Both squads ready."
+		elif opponent >= 0 and opponent < connected.size() and not connected[opponent]:
+			loadout_status.text = "Configure your squad while waiting for an opponent..."
+		elif loadout_ready[opponent]:
+			loadout_status.text = "Opponent is ready. Lock in your squad."
+		else:
+			loadout_status.text = "Both players are choosing abilities."
+		_refresh_loadout_ui()
+		if not OS.has_feature("web") and _query_param("auto_loadout") != "" and not _debug_loadout_sent:
+			_debug_loadout_sent = true
+			Net.c_loadout.rpc_id(1, loadout_masks.duplicate())
+	elif loadout_overlay.visible:
+		loadout_overlay.visible = false
+		hud_layer.visible = not menu_layer.visible
 	if state == Cfg.State.DEPLOYMENT and prev_state != Cfg.State.DEPLOYMENT:
 		_reset_round_visuals()
 		sfx.play("start", -4.0)
@@ -671,6 +939,7 @@ func _on_snapshot(d: Dictionary) -> void:
 		o["alive"] = e[4] & 8 != 0
 		o["target"] = e[5]
 		o["watch"] = e[6]
+		o["mp"] = e[7] if e.size() > 7 else Cfg.SOLDIER_MP
 		if not o["init"] or o["disp"].distance_to(o["pos"]) > 120.0:
 			o["disp"] = o["pos"]
 			o["disp_facing"] = o["facing"]
@@ -714,7 +983,8 @@ func _handle_event(ev: Array) -> void:
 			var a: int = ev[1]
 			ability_flash[a] = 1.0
 			var weapon_name: String = Cfg.WEAPONS[Cfg.SQUAD_WEAPONS[ev[2]]]["name"]
-			_msg("%s! (%s%s)" % [Cfg.ABILITIES[a]["name"], weapon_name, ", voice" if ev[3] else ""], Color(0.5, 1.0, 0.7))
+			var caster_count: int = ev[4] if ev.size() > 4 else 1
+			_msg("%s! (%d caster%s, %s%s)" % [Cfg.ABILITIES[a]["name"], caster_count, "" if caster_count == 1 else "s", weapon_name, ", voice" if ev[3] else ""], Color(0.5, 1.0, 0.7))
 			sfx.play("ability", -6.0)
 		"scan":
 			scan_fx.append({"origin": ev[1], "radius": ev[2], "t": 1.0, "max": 1.0})
@@ -856,6 +1126,8 @@ func _tick_magic_particles(dt: float) -> void:
 # --------------------------------------------------------------------------
 
 func _unhandled_input(event: InputEvent) -> void:
+	if loadout_overlay != null and loadout_overlay.visible:
+		return
 	if event is InputEventKey and event.pressed and not event.echo \
 			and (event.keycode == KEY_ESCAPE or event.physical_keycode == KEY_ESCAPE):
 		if slot >= 0 and not menu_layer.visible:
@@ -891,10 +1163,9 @@ func _unhandled_input(event: InputEvent) -> void:
 			return
 		match event.keycode:
 			KEY_TAB: _cycle_select()
-			KEY_Q: _use_ability(Cfg.Ability.SMOKE, false)
-			KEY_E: _use_ability(Cfg.Ability.SCAN, false)
-			KEY_R: _use_ability(Cfg.Ability.SUPPRESS, false)
-			KEY_F: _use_ability(Cfg.Ability.RUSH, false)
+			KEY_W: _use_ability_slot(0, false)
+			KEY_E: _use_ability_slot(1, false)
+			KEY_R: _use_ability_slot(2, false)
 			KEY_V:
 				voice.toggle()
 				if voice.enabled:
@@ -934,8 +1205,24 @@ func _cycle_select() -> void:
 			return
 
 
-func _use_ability(ability: int, via_voice: bool) -> void:
-	Net.c_ability.rpc_id(1, ability, world.get_local_mouse_position(), via_voice)
+func _use_ability_slot(slot_idx: int, via_voice: bool) -> bool:
+	var equipped := equipped_abilities(selected)
+	if slot_idx < 0 or slot_idx >= equipped.size():
+		return false
+	return _use_ability(equipped[slot_idx], via_voice)
+
+
+func _use_ability(ability: int, via_voice: bool) -> bool:
+	return _use_ability_at(ability, world.get_local_mouse_position(), via_voice)
+
+
+func _use_ability_at(ability: int, target: Vector2, via_voice: bool) -> bool:
+	if ready_ability_casters(ability) == 0:
+		_msg("No ready squad member can cast %s" % Cfg.ABILITIES[ability]["name"], Color(0.35, 0.72, 1.0))
+		sfx.play("deny", -8.0)
+		return false
+	Net.c_ability.rpc_id(1, ability, target, via_voice)
+	return true
 
 
 func _soldier_name(idx: int) -> String:
@@ -1102,5 +1389,5 @@ func _on_voice_command(cmd: Dictionary) -> void:
 				var cur: Dictionary = own[selected]
 				var face_ang: float = cur.get("disp_facing", cur.get("facing", 0.0))
 				target_pos = cur.get("disp", Vector2.ZERO) + Vector2.from_angle(face_ang) * 160.0
-			_msg("🎙️ [%s] %s" % [_soldier_name(selected), Cfg.ABILITIES[ab]["name"].to_upper()], Color(0.5, 1.0, 0.7))
-			Net.c_ability.rpc_id(1, ab, target_pos, true)
+			if _use_ability_at(ab, target_pos, true):
+				_msg("🎙️ [SQUAD] %s" % Cfg.ABILITIES[ab]["name"].to_upper(), Color(0.5, 1.0, 0.7))

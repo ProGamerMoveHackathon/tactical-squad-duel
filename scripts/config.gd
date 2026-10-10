@@ -14,6 +14,8 @@ const WORLD_SIZE := Vector2(MAP_W * TILE, MAP_H * TILE)
 # --- Soldiers -------------------------------------------------------------
 const SOLDIER_RADIUS := 11.0
 const SOLDIER_HP := 100
+const SOLDIER_MP := 100.0
+const MP_RECOVERY_TIME := 8.0
 const HEALTH_REGEN_DELAY := 10.0
 const HEALTH_REGEN_RATE := 5.0
 const MOVE_SPEED := 120.0              # px / s
@@ -42,11 +44,14 @@ const REACTION_TIME := 0.22  # delay before a soldier opens fire on a newly acqu
 # --- Abilities ------------------------------------------------------------
 enum Ability { SMOKE, SCAN, SUPPRESS, RUSH }
 const ABILITIES := {
-	Ability.SMOKE: {"name": "Smoke", "key": "Q", "cooldown": 22.0, "duration": 9.0, "radius": 74.0, "throw_range": 340.0},
-	Ability.SCAN: {"name": "Scan", "key": "E", "cooldown": 18.0, "duration": 2.5, "radius": 460.0},
-	Ability.SUPPRESS: {"name": "Suppress", "key": "R", "cooldown": 20.0, "duration": 6.0, "cone_mult": 1.8, "accuracy_mult": 0.55, "rate_mult": 1.3},
-	Ability.RUSH: {"name": "Rush", "key": "F", "cooldown": 16.0, "duration": 4.0, "speed_mult": 1.65},
+	Ability.SMOKE: {"name": "Smoke", "mp_cost": 40.0, "cooldown": 22.0, "duration": 9.0, "radius": 74.0, "throw_distance": 96.0},
+	Ability.SCAN: {"name": "Scan", "mp_cost": 25.0, "cooldown": 18.0, "duration": 2.5, "radius": 460.0},
+	Ability.SUPPRESS: {"name": "Suppress", "mp_cost": 55.0, "cooldown": 20.0, "duration": 6.0, "cone_mult": 1.8, "accuracy_mult": 0.55, "rate_mult": 1.3},
+	Ability.RUSH: {"name": "Rush", "mp_cost": 35.0, "cooldown": 16.0, "duration": 4.0, "speed_mult": 1.65},
 }
+## Three equipped abilities per squad member. Bit N corresponds to Ability N.
+const DEFAULT_LOADOUTS := [7, 13, 11, 14]
+const ABILITY_SLOT_KEYS := ["W", "E", "R"]
 ## Spoken phrases that trigger each ability (lower-case, matched as whole words /
 ## word sequences). Includes a few common speech-recognition mishearings.
 const VOICE_PHRASES := {
@@ -98,7 +103,7 @@ const SCAN_MOVE_MEMORY := 1.5
 const COUNTDOWN := 3.0
 const DEPLOYMENT_DURATION := 2.4
 
-enum State { WAITING, DEPLOYMENT, COUNTDOWN, PLAYING, ENDED }
+enum State { WAITING, LOADOUT, DEPLOYMENT, COUNTDOWN, PLAYING, ENDED }
 
 const TEAM_COLORS := [Color(0.30, 0.65, 1.0), Color(1.0, 0.38, 0.32)]
 const TEAM_NAMES := ["Blue", "Red"]
