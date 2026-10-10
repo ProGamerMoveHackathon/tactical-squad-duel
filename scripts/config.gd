@@ -4,7 +4,7 @@ extends RefCounted
 
 const DEFAULT_PORT := 9080
 const MAX_PLAYERS := 2
-const SQUAD_SIZE := 3
+const SQUAD_SIZE := 4
 
 const TILE := 32
 const MAP_W := 40
@@ -14,6 +14,8 @@ const WORLD_SIZE := Vector2(MAP_W * TILE, MAP_H * TILE)
 # --- Soldiers -------------------------------------------------------------
 const SOLDIER_RADIUS := 11.0
 const SOLDIER_HP := 100
+const HEALTH_REGEN_DELAY := 10.0
+const HEALTH_REGEN_RATE := 5.0
 const MOVE_SPEED := 120.0              # px / s
 const TURN_SPEED := deg_to_rad(540.0)  # rad / s
 ## If true, a soldier that was moving keeps walking to its destination after the
@@ -29,12 +31,12 @@ const SMOKE_SEE_DEPTH := 22.0          # how far you can see into a smoke cloud
 # --- Weapons --------------------------------------------------------------
 enum Weapon { RIFLE, SMG, SHOTGUN }
 const WEAPONS := {
-	Weapon.RIFLE: {"name": "Rifle", "range": 400.0, "cone": 18.0, "interval": 0.60, "damage": 34, "pellets": 1, "accuracy": 0.92},
-	Weapon.SMG: {"name": "SMG", "range": 290.0, "cone": 44.0, "interval": 0.13, "damage": 8, "pellets": 1, "accuracy": 0.72},
-	Weapon.SHOTGUN: {"name": "Shotgun", "range": 175.0, "cone": 66.0, "interval": 0.90, "damage": 10, "pellets": 6, "accuracy": 0.62},
+	Weapon.RIFLE: {"name": "Arc Bolt", "range": 400.0, "cone": 18.0, "interval": 0.60, "damage": 34, "pellets": 1, "accuracy": 0.92},
+	Weapon.SMG: {"name": "Volley", "range": 290.0, "cone": 44.0, "interval": 0.13, "damage": 8, "pellets": 1, "accuracy": 0.72},
+	Weapon.SHOTGUN: {"name": "Prism", "range": 175.0, "cone": 66.0, "interval": 0.90, "damage": 10, "pellets": 6, "accuracy": 0.62},
 }
 ## Weapon of each squad slot (same for both teams).
-const SQUAD_WEAPONS := [Weapon.RIFLE, Weapon.SMG, Weapon.SHOTGUN]
+const SQUAD_WEAPONS := [Weapon.RIFLE, Weapon.SMG, Weapon.SHOTGUN, Weapon.RIFLE]
 const REACTION_TIME := 0.22  # delay before a soldier opens fire on a newly acquired target
 
 # --- Abilities ------------------------------------------------------------
@@ -59,6 +61,7 @@ const VOICE_SUBJECTS := {
 	0: ["alpha", "alfa", "one", "first", "rifle", "sniper"],
 	1: ["bravo", "two", "second", "smg", "gunner"],
 	2: ["charlie", "three", "third", "shotgun", "breacher"],
+	3: ["delta", "four", "fourth", "marksman"],
 	-1: ["squad", "all", "team", "everyone"],
 }
 
@@ -93,8 +96,9 @@ const SCAN_MOVE_MEMORY := 1.5
 
 # --- Match ----------------------------------------------------------------
 const COUNTDOWN := 3.0
+const DEPLOYMENT_DURATION := 2.4
 
-enum State { WAITING, COUNTDOWN, PLAYING, ENDED }
+enum State { WAITING, DEPLOYMENT, COUNTDOWN, PLAYING, ENDED }
 
 const TEAM_COLORS := [Color(0.30, 0.65, 1.0), Color(1.0, 0.38, 0.32)]
 const TEAM_NAMES := ["Blue", "Red"]

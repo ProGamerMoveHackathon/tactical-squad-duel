@@ -99,8 +99,18 @@ func is_wall_at(p: Vector2) -> bool:
 
 
 func spawn_position(team: int, idx: int) -> Vector2:
-	var ys := [7.5, 11.0, 14.5]
+	var ys := [5.0, 9.0, 13.0, 17.0]
 	var p := Vector2(2.5 * T, ys[idx] * T)
+	if team == 1:
+		p = Cfg.WORLD_SIZE - p
+	return p
+
+
+func entry_position(team: int, idx: int) -> Vector2:
+	# Starts fully inside the playable map, clustered around the doorway. Normal
+	# pathfinding then fans the squad out to its four deployment lanes.
+	var gathered_y := Cfg.WORLD_SIZE.y * 0.5 + (idx - (Cfg.SQUAD_SIZE - 1) * 0.5) * 24.0
+	var p := Vector2(1.5 * T, gathered_y)
 	if team == 1:
 		p = Cfg.WORLD_SIZE - p
 	return p

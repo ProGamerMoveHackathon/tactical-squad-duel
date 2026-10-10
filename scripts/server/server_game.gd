@@ -20,7 +20,8 @@ class Soldier:
 	var facing := 0.0
 	var watch_angle := 0.0
 	var facing_lock := false
-	var hp := Cfg.SOLDIER_HP
+	var hp: float = Cfg.SOLDIER_HP
+	var health_regen_wait := 0.0
 	var alive := true
 	var path := PackedVector2Array()
 	var moving := false
@@ -41,9 +42,10 @@ var cooldowns := [[0.0, 0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 0.0]]
 var smokes := []             # {pos, radius, t}
 var scans := []              # {team, origin, t}
 var events := [[], []]       # per team, flushed with every snapshot
-var vis_table := [[false, false, false], [false, false, false]]  # vis_table[team][enemy idx]
+var vis_table := [[false, false, false, false], [false, false, false, false]]  # vis_table[team][enemy idx]
 var rematch_votes := [false, false]
 var state := Cfg.State.WAITING
+var deployment := 0.0
 var countdown := 0.0
 var winner := -1
 var time := 0.0
@@ -136,17 +138,25 @@ func _reset_squads() -> void:
 		selected[team] = 0
 	smokes.clear()
 	scans.clear()
-	vis_table = [[false, false, false], [false, false, false]]
+	vis_table = [[false, false, false, false], [false, false, false, false]]
 	rematch_votes = [false, false]
 	winner = -1
 
 
 func _start_match() -> void:
 	_reset_squads()
-	state = Cfg.State.COUNTDOWN
+	for team in 2:
+		for s: Soldier in squads[team]:
+			var destination := map.spawn_position(team, s.idx)
+			s.pos = map.entry_position(team, s.idx)
+			s.path = map.find_path(s.pos, destination)
+			s.facing = map.spawn_facing(team)
+			s.watch_angle = s.facing
+	state = Cfg.State.DEPLOYMENT
+	deployment = Cfg.DEPLOYMENT_DURATION
 	countdown = Cfg.COUNTDOWN
 	for t in 2:
-		events[t].append(["msg", "Match starting!"])
+		events[t].append(["msg", "Squads entering the arena!"])
 
 
 func on_rematch(id: int) -> void:
@@ -263,6 +273,21 @@ func _physics_process(dt: float) -> void:
 		return
 	time += dt
 	match state:
+		Cfg.State.DEPLOYMENT:
+			deployment -= dt
+			for team in 2:
+				for s: Soldier in squads[team]:
+					_move_soldier(s, dt)
+			if deployment <= 0.0:
+				deployment = 0.0
+				for team in 2:
+					for s: Soldier in squads[team]:
+						s.pos = map.spawn_position(team, s.idx)
+						s.path.clear()
+				state = Cfg.State.COUNTDOWN
+				countdown = Cfg.COUNTDOWN
+				for t in 2:
+					events[t].append(["msg", "Get ready!"])
 		Cfg.State.COUNTDOWN:
 			countdown -= dt
 			_update_facing_only(dt)
@@ -307,6 +332,7 @@ func _simulate(dt: float) -> void:
 	for s: Soldier in all:
 		if not s.alive:
 			continue
+		_advance_regeneration(s, dt)
 		s.suppress_t = maxf(0.0, s.suppress_t - dt)
 		s.rush_t = maxf(0.0, s.rush_t - dt)
 		_move_soldier(s, dt)
@@ -338,6 +364,13 @@ func _simulate(dt: float) -> void:
 		if s.alive:
 			_shoot(s, dt, smoke_list)
 	_check_victory()
+
+
+func _advance_regeneration(s: Soldier, dt: float) -> void:
+	var regen_delta := maxf(0.0, dt - s.health_regen_wait)
+	s.health_regen_wait = maxf(0.0, s.health_regen_wait - dt)
+	if regen_delta > 0.0 and s.hp < Cfg.SOLDIER_HP:
+		s.hp = minf(Cfg.SOLDIER_HP, s.hp + Cfg.HEALTH_REGEN_RATE * regen_delta)
 
 
 func _move_soldier(s: Soldier, dt: float) -> void:
@@ -450,6 +483,7 @@ func _shoot(s: Soldier, dt: float, smoke_list: Array) -> void:
 
 	if dmg > 0:
 		best.hp -= dmg
+		best.health_regen_wait = Cfg.HEALTH_REGEN_DELAY
 		if best.hp <= 0:
 			best.hp = 0
 			best.alive = false
@@ -515,8 +549,8 @@ func _broadcast() -> void:
 		var enemy_alive := []
 		for e: Soldier in squads[1 - team]:
 			enemy_alive.append(e.alive)
-			# All enemies are visible once the match is over.
-			if vis_table[team][e.idx] or (state == Cfg.State.ENDED and e.alive):
+			# Show both formations during the cinematic border entry.
+			if vis_table[team][e.idx] or state == Cfg.State.DEPLOYMENT or state == Cfg.State.COUNTDOWN or (state == Cfg.State.ENDED and e.alive):
 				en.append([e.idx, e.pos, e.facing, e.hp, _flags(e)])
 			elif e.alive:
 				for sc in scans:
@@ -525,6 +559,7 @@ func _broadcast() -> void:
 						break
 		var snap := {
 			"st": state,
+			"dp": deployment,
 			"ct": countdown,
 			"win": winner,
 			"sel": selected[team],

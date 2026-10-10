@@ -25,6 +25,7 @@ var map := MapData.new()
 # --- Match state (from server) --------------------------------------------
 var slot := -1
 var state := Cfg.State.WAITING
+var deployment := 0.0
 var countdown := 0.0
 var winner := -1
 var selected := 0
@@ -32,7 +33,7 @@ var own := []          # Array of Dictionary
 var enemies := {}      # idx -> Dictionary
 var ghosts := []       # last known enemy positions
 var scanned := []      # [[idx, pos]]
-var enemy_alive := [true, true, true]
+var enemy_alive := [true, true, true, true]
 var smokes := []       # [[pos, r, t_left]]
 var cooldowns := [0.0, 0.0, 0.0, 0.0]
 var names := ["", ""]
@@ -41,6 +42,7 @@ var rematch_votes := [false, false]
 # --- Effects -------------------------------------------------------------
 var time := 0.0
 var tracers := []
+var magic_particles := []
 var hurts := []
 var corpses := []
 var scan_fx := []
@@ -59,6 +61,7 @@ var entity_view: Node2D
 var fog_vp: SubViewport
 var vision_mask: Node2D
 var fog_sprite: Sprite2D
+var world_light: CanvasModulate
 var hud: Control
 var hud_layer: CanvasLayer
 var menu_layer: CanvasLayer
@@ -66,6 +69,11 @@ var name_edit: LineEdit
 var url_edit: LineEdit
 var connect_btn: Button
 var status_label: Label
+var menu_panorama: TextureRect
+var pause_layer: CanvasLayer
+var pause_overlay: ColorRect
+var pause_main_panel: VBoxContainer
+var pause_settings_panel: VBoxContainer
 var voice: Node
 var sfx: Node
 
@@ -81,6 +89,7 @@ func _ready() -> void:
 	_build_world()
 	_build_hud()
 	_build_menu()
+	_build_pause_menu()
 	Net.welcomed.connect(_on_welcome)
 	Net.snapshot_received.connect(_on_snapshot)
 	Net.rejected.connect(_on_rejected)
@@ -115,7 +124,7 @@ func _setup_debug_hooks() -> void:
 			if state != Cfg.State.PLAYING:
 				return
 			step[0] += 1
-			var idx: int = step[0] % 3
+			var idx: int = step[0] % Cfg.SQUAD_SIZE
 			_select(idx)
 			var target := Cfg.WORLD_SIZE * 0.5 + Vector2(randf_range(-200, 60) * (1 if slot == 0 else -1), randf_range(-200, 200))
 			Net.c_move.rpc_id(1, target, false)
@@ -123,6 +132,8 @@ func _setup_debug_hooks() -> void:
 				_use_ability(Cfg.Ability.SMOKE, false)
 			if step[0] == 5:
 				_use_ability(Cfg.Ability.SUPPRESS, false))
+	if _query_param("pause") != "":
+		get_tree().create_timer(4.0).timeout.connect(_open_pause)
 
 
 # --------------------------------------------------------------------------
@@ -133,6 +144,9 @@ func _build_world() -> void:
 	world = Node2D.new()
 	world.name = "World"
 	add_child(world)
+	world_light = CanvasModulate.new()
+	world_light.color = Color.WHITE
+	world.add_child(world_light)
 	map_view = MapView.new()
 	map_view.map = map
 	world.add_child(map_view)
@@ -177,7 +191,7 @@ func _build_hud() -> void:
 	# Block clicks on the bottom bar from reaching the world.
 	var blocker := Control.new()
 	blocker.position = Vector2(0, Cfg.WORLD_SIZE.y)
-	blocker.size = Vector2(Cfg.WORLD_SIZE.x, 64)
+	blocker.size = Vector2(Cfg.WORLD_SIZE.x, Hud.BAR_H)
 	blocker.mouse_filter = Control.MOUSE_FILTER_STOP
 	hud_layer.add_child(blocker)
 	var mic_btn := Button.new()
@@ -199,14 +213,34 @@ func _build_menu() -> void:
 	menu_layer = CanvasLayer.new()
 	menu_layer.layer = 10
 	add_child(menu_layer)
+	menu_panorama = TextureRect.new()
+	menu_panorama.name = "CampusFlythrough"
+	menu_panorama.texture = load("res://assets/eth_campus_panorama_pixel.png")
+	menu_panorama.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	menu_panorama.stretch_mode = TextureRect.STRETCH_SCALE
+	menu_panorama.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+	menu_panorama.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var panorama_ratio := float(menu_panorama.texture.get_width()) / float(menu_panorama.texture.get_height())
+	var menu_height: float = get_viewport().get_visible_rect().size.y
+	menu_panorama.size = Vector2(menu_height * panorama_ratio, menu_height)
+	menu_layer.add_child(menu_panorama)
 	var bg := ColorRect.new()
-	bg.color = Color(0.04, 0.05, 0.07)
+	bg.color = Color(0.0, 0.025, 0.065, 0.5)
 	bg.set_anchors_preset(Control.PRESET_FULL_RECT)
+	bg.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	menu_layer.add_child(bg)
 	var center := CenterContainer.new()
 	center.set_anchors_preset(Control.PRESET_FULL_RECT)
 	menu_layer.add_child(center)
 	var panel := PanelContainer.new()
+	var panel_style := StyleBoxFlat.new()
+	panel_style.bg_color = Color(0.012, 0.03, 0.06, 0.96)
+	panel_style.border_color = Color(0.72, 0.91, 1.0, 0.98)
+	panel_style.set_border_width_all(3)
+	panel_style.set_corner_radius_all(10)
+	panel_style.shadow_color = Color(0.0, 0.0, 0.0, 0.72)
+	panel_style.shadow_size = 16
+	panel.add_theme_stylebox_override("panel", panel_style)
 	center.add_child(panel)
 	var margin := MarginContainer.new()
 	for side in ["left", "right", "top", "bottom"]:
@@ -221,56 +255,298 @@ func _build_menu() -> void:
 	title.text = "TACTICAL SQUAD DUEL"
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	title.add_theme_font_size_override("font_size", 38)
-	title.add_theme_color_override("font_color", Color(0.85, 0.95, 1.0))
+	title.add_theme_color_override("font_color", Color(0.96, 0.99, 1.0))
+	title.add_theme_color_override("font_shadow_color", Color(0.0, 0.55, 0.85, 0.9))
+	title.add_theme_constant_override("shadow_offset_x", 2)
+	title.add_theme_constant_override("shadow_offset_y", 2)
 	box.add_child(title)
 	var sub := Label.new()
-	sub.text = "1 vs 1 · 3 soldiers each · see them before they see you"
+	sub.text = "1 vs 1 · 4 soldiers each · see them before they see you"
 	sub.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	sub.add_theme_color_override("font_color", Color(0.6, 0.7, 0.8))
+	sub.add_theme_color_override("font_color", Color(0.38, 0.88, 1.0))
 	box.add_child(sub)
 	box.add_child(HSeparator.new())
 
 	var name_label := Label.new()
 	name_label.text = "Callsign"
+	name_label.add_theme_color_override("font_color", Color(0.82, 0.93, 1.0))
 	box.add_child(name_label)
 	name_edit = LineEdit.new()
 	name_edit.max_length = 16
+	_style_menu_field(name_edit)
 	var qn := _query_param("name")
 	name_edit.text = qn if qn != "" else "Player%d" % (randi() % 900 + 100)
 	box.add_child(name_edit)
 	var url_label := Label.new()
 	url_label.text = "Server"
+	url_label.add_theme_color_override("font_color", Color(0.82, 0.93, 1.0))
 	box.add_child(url_label)
 	url_edit = LineEdit.new()
 	url_edit.text = _default_url()
+	_style_menu_field(url_edit)
 	box.add_child(url_edit)
 	connect_btn = Button.new()
 	connect_btn.text = "Deploy"
 	connect_btn.custom_minimum_size = Vector2(0, 40)
+	_style_menu_button(connect_btn)
 	connect_btn.pressed.connect(_on_connect_pressed)
 	box.add_child(connect_btn)
 	status_label = Label.new()
 	status_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	status_label.add_theme_color_override("font_color", Color(1.0, 0.8, 0.4))
+	status_label.add_theme_color_override("font_color", Color(1.0, 0.83, 0.28))
+	status_label.add_theme_color_override("font_shadow_color", Color(0.0, 0.0, 0.0, 0.9))
+	status_label.add_theme_constant_override("shadow_offset_x", 1)
+	status_label.add_theme_constant_override("shadow_offset_y", 2)
 	status_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	box.add_child(status_label)
 	box.add_child(HSeparator.new())
 	var help := Label.new()
 	help.text = "VOICE COMMANDS (Hands-Free):\n" \
-		+ "• Select: \"Alpha\", \"Bravo\", \"Charlie\", \"Squad\"\n" \
+		+ "• Select: \"Alpha\", \"Bravo\", \"Charlie\", \"Delta\", \"Squad\"\n" \
 		+ "• Move: \"Alpha to Mid\", \"Advance to North\", \"Fall back to Base\", \"Stop\"\n" \
 		+ "• Aim: \"Watch North\", \"Watch Mid\", \"Aim South\"\n" \
 		+ "• Abilities: \"Smoke Mid\", \"Scan\", \"Suppress\", \"Squad Rush\"\n" \
 		+ "• Match: \"Deploy\", \"Rematch\"\n\n" \
-		+ "Fallback: LMB move · RMB face · 1-3 select · Q E R F abilities · V mic toggle"
+		+ "Fallback: LMB move · RMB face · 1-4 / numpad select · Q E R F abilities · V mic toggle"
 	help.add_theme_font_size_override("font_size", 12)
-	help.add_theme_color_override("font_color", Color(0.75, 0.78, 0.82))
+	help.add_theme_color_override("font_color", Color(0.82, 0.9, 0.96))
 	box.add_child(help)
 	name_edit.text_submitted.connect(func(_t): _on_connect_pressed())
 	url_edit.text_submitted.connect(func(_t): _on_connect_pressed())
 
 
+func _build_pause_menu() -> void:
+	pause_layer = CanvasLayer.new()
+	pause_layer.layer = 20
+	add_child(pause_layer)
+	pause_overlay = ColorRect.new()
+	pause_overlay.color = Color(0.0, 0.006, 0.018, 0.88)
+	pause_overlay.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	pause_overlay.mouse_filter = Control.MOUSE_FILTER_STOP
+	pause_overlay.visible = false
+	pause_layer.add_child(pause_overlay)
+
+	var center := CenterContainer.new()
+	center.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	pause_overlay.add_child(center)
+	var panel := PanelContainer.new()
+	panel.custom_minimum_size = Vector2(430, 430)
+	var panel_style := StyleBoxFlat.new()
+	panel_style.bg_color = Color(0.018, 0.04, 0.07, 0.98)
+	panel_style.border_color = Color(0.28, 0.82, 1.0, 0.92)
+	panel_style.set_border_width_all(3)
+	panel_style.set_corner_radius_all(12)
+	panel_style.content_margin_left = 34
+	panel_style.content_margin_right = 34
+	panel_style.content_margin_top = 28
+	panel_style.content_margin_bottom = 28
+	panel.add_theme_stylebox_override("panel", panel_style)
+	center.add_child(panel)
+	var menu_content := Control.new()
+	menu_content.custom_minimum_size = Vector2(356, 366)
+	panel.add_child(menu_content)
+
+	pause_main_panel = VBoxContainer.new()
+	pause_main_panel.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	pause_main_panel.add_theme_constant_override("separation", 12)
+	menu_content.add_child(pause_main_panel)
+	var pause_title := Label.new()
+	pause_title.text = "PAUSE MENU"
+	pause_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	pause_title.add_theme_font_size_override("font_size", 32)
+	pause_title.add_theme_color_override("font_color", Color(0.8, 0.95, 1.0))
+	pause_main_panel.add_child(pause_title)
+	var warning := Label.new()
+	warning.text = "ONLINE MATCH CONTINUES WHILE THIS MENU IS OPEN"
+	warning.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	warning.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	warning.add_theme_font_size_override("font_size", 14)
+	warning.add_theme_color_override("font_color", Color(1.0, 0.52, 0.28))
+	pause_main_panel.add_child(warning)
+	var spacer := Control.new()
+	spacer.custom_minimum_size.y = 18
+	pause_main_panel.add_child(spacer)
+	var resume_button := Button.new()
+	resume_button.text = "RESUME"
+	resume_button.custom_minimum_size.y = 54
+	_style_menu_button(resume_button)
+	resume_button.pressed.connect(_close_pause)
+	pause_main_panel.add_child(resume_button)
+	var settings_button := Button.new()
+	settings_button.text = "SETTINGS"
+	settings_button.custom_minimum_size.y = 54
+	_style_menu_button(settings_button)
+	settings_button.pressed.connect(_show_pause_settings)
+	pause_main_panel.add_child(settings_button)
+	var leave_button := Button.new()
+	leave_button.text = "LEAVE GAME"
+	leave_button.custom_minimum_size.y = 54
+	_style_menu_button(leave_button)
+	leave_button.pressed.connect(_leave_match)
+	pause_main_panel.add_child(leave_button)
+
+	pause_settings_panel = VBoxContainer.new()
+	pause_settings_panel.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	pause_settings_panel.add_theme_constant_override("separation", 18)
+	pause_settings_panel.visible = false
+	menu_content.add_child(pause_settings_panel)
+	var settings_title := Label.new()
+	settings_title.text = "SETTINGS"
+	settings_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	settings_title.add_theme_font_size_override("font_size", 32)
+	pause_settings_panel.add_child(settings_title)
+	var volume_label := Label.new()
+	volume_label.text = "MASTER VOLUME"
+	volume_label.add_theme_font_size_override("font_size", 17)
+	pause_settings_panel.add_child(volume_label)
+	var volume_slider := HSlider.new()
+	volume_slider.min_value = -30.0
+	volume_slider.max_value = 0.0
+	volume_slider.step = 1.0
+	volume_slider.value = AudioServer.get_bus_volume_db(AudioServer.get_bus_index("Master"))
+	volume_slider.custom_minimum_size.y = 48
+	volume_slider.value_changed.connect(_set_master_volume)
+	pause_settings_panel.add_child(volume_slider)
+	var hint := Label.new()
+	hint.text = "Adjust game sound effects and alerts. Online play continues in the background."
+	hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	hint.add_theme_color_override("font_color", Color(0.72, 0.82, 0.9))
+	pause_settings_panel.add_child(hint)
+	var settings_spacer := Control.new()
+	settings_spacer.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	pause_settings_panel.add_child(settings_spacer)
+	var back_button := Button.new()
+	back_button.text = "BACK"
+	back_button.custom_minimum_size.y = 54
+	_style_menu_button(back_button)
+	back_button.pressed.connect(_show_pause_main)
+	pause_settings_panel.add_child(back_button)
+
+	var controls_margin := MarginContainer.new()
+	controls_margin.set_anchor(SIDE_LEFT, 1.0)
+	controls_margin.set_anchor(SIDE_RIGHT, 1.0)
+	controls_margin.set_anchor(SIDE_TOP, 0.5)
+	controls_margin.set_anchor(SIDE_BOTTOM, 0.5)
+	controls_margin.offset_left = -300
+	controls_margin.offset_right = -20
+	controls_margin.offset_top = -170
+	controls_margin.offset_bottom = 170
+	pause_overlay.add_child(controls_margin)
+	var controls_panel := PanelContainer.new()
+	var controls_style := StyleBoxFlat.new()
+	controls_style.bg_color = Color(0.018, 0.04, 0.07, 0.96)
+	controls_style.border_color = Color(0.24, 0.62, 0.8, 0.88)
+	controls_style.set_border_width_all(2)
+	controls_style.set_corner_radius_all(10)
+	controls_style.content_margin_left = 20
+	controls_style.content_margin_right = 20
+	controls_style.content_margin_top = 18
+	controls_style.content_margin_bottom = 18
+	controls_panel.add_theme_stylebox_override("panel", controls_style)
+	controls_margin.add_child(controls_panel)
+	var controls := VBoxContainer.new()
+	controls.add_theme_constant_override("separation", 8)
+	controls_panel.add_child(controls)
+	var controls_title := Label.new()
+	controls_title.text = "CONTROLS"
+	controls_title.add_theme_font_size_override("font_size", 20)
+	controls.add_child(controls_title)
+	var help := Label.new()
+	help.text = "1–4 / Numpad: select soldier\nTab: next living soldier\nLeft click: move / select\nRight click: face direction\nQ: smoke · E: scan\nR: suppress · F: rush\nV: voice toggle\nEscape: close menu"
+	help.add_theme_color_override("font_color", Color(0.9, 0.96, 1.0))
+	controls.add_child(help)
+
+
+func _open_pause() -> void:
+	if pause_overlay == null or slot < 0:
+		return
+	pause_overlay.visible = true
+	pause_main_panel.visible = true
+	pause_settings_panel.visible = false
+	sfx.play("voice", -10.0)
+
+
+func _close_pause() -> void:
+	if pause_overlay == null:
+		return
+	pause_overlay.visible = false
+	pause_main_panel.visible = true
+	pause_settings_panel.visible = false
+	sfx.play("voice", -10.0)
+
+
+func _show_pause_settings() -> void:
+	pause_main_panel.visible = false
+	pause_settings_panel.visible = true
+	sfx.play("voice", -10.0)
+
+
+func _show_pause_main() -> void:
+	pause_settings_panel.visible = false
+	pause_main_panel.visible = true
+	sfx.play("voice", -10.0)
+
+
+func _set_master_volume(value: float) -> void:
+	AudioServer.set_bus_volume_db(AudioServer.get_bus_index("Master"), clampf(value, -30.0, 0.0))
+
+
+func _leave_match() -> void:
+	_close_pause()
+	_connected = false
+	slot = -1
+	Net.leave()
+	_show_menu(true, "Left online match.")
+
+
+func _style_menu_field(field: LineEdit) -> void:
+	var normal := StyleBoxFlat.new()
+	normal.bg_color = Color(0.018, 0.055, 0.1, 0.98)
+	normal.border_color = Color(0.28, 0.76, 0.96, 0.95)
+	normal.set_border_width_all(2)
+	normal.set_corner_radius_all(5)
+	normal.content_margin_left = 12
+	normal.content_margin_right = 12
+	var focus := normal.duplicate()
+	focus.bg_color = Color(0.025, 0.12, 0.2, 1.0)
+	focus.border_color = Color(1.0, 0.83, 0.28, 1.0)
+	field.add_theme_stylebox_override("normal", normal)
+	field.add_theme_stylebox_override("focus", focus)
+	field.add_theme_color_override("font_color", Color(0.96, 0.99, 1.0))
+	field.add_theme_color_override("caret_color", Color(0.38, 0.88, 1.0))
+	field.add_theme_color_override("selection_color", Color(0.08, 0.45, 0.62, 0.9))
+
+
+func _style_menu_button(button: Button) -> void:
+	var normal := StyleBoxFlat.new()
+	normal.bg_color = Color(0.02, 0.32, 0.46, 0.98)
+	normal.border_color = Color(0.28, 0.76, 0.96, 0.95)
+	normal.set_border_width_all(2)
+	normal.set_corner_radius_all(5)
+	var hover := normal.duplicate()
+	hover.bg_color = Color(0.06, 0.45, 0.62, 1.0)
+	hover.border_color = Color(0.82, 0.96, 1.0, 1.0)
+	var pressed := normal.duplicate()
+	pressed.bg_color = Color(0.015, 0.2, 0.3, 1.0)
+	pressed.border_color = Color(1.0, 0.83, 0.28, 1.0)
+	var disabled := normal.duplicate()
+	disabled.bg_color = Color(0.02, 0.06, 0.09, 0.94)
+	disabled.border_color = Color(0.24, 0.36, 0.43, 0.9)
+	button.add_theme_stylebox_override("normal", normal)
+	button.add_theme_stylebox_override("hover", hover)
+	button.add_theme_stylebox_override("pressed", pressed)
+	button.add_theme_stylebox_override("focus", pressed)
+	button.add_theme_stylebox_override("disabled", disabled)
+	button.add_theme_color_override("font_color", Color(0.96, 0.99, 1.0))
+	button.add_theme_color_override("font_hover_color", Color.WHITE)
+	button.add_theme_color_override("font_pressed_color", Color.WHITE)
+	button.add_theme_color_override("font_disabled_color", Color(0.55, 0.65, 0.72))
+	button.add_theme_font_size_override("font_size", 16)
+
+
 func _show_menu(show: bool, status: String) -> void:
+	if show and pause_overlay != null:
+		pause_overlay.visible = false
 	menu_layer.visible = show
 	world.visible = not show
 	hud_layer.visible = not show
@@ -365,6 +641,7 @@ func _reset_round_visuals() -> void:
 	ghosts.clear()
 	scanned.clear()
 	tracers.clear()
+	magic_particles.clear()
 	hurts.clear()
 	corpses.clear()
 	scan_fx.clear()
@@ -373,11 +650,14 @@ func _reset_round_visuals() -> void:
 func _on_snapshot(d: Dictionary) -> void:
 	var prev_state := state
 	state = d["st"]
-	if state == Cfg.State.COUNTDOWN and prev_state != Cfg.State.COUNTDOWN:
+	if state == Cfg.State.DEPLOYMENT and prev_state != Cfg.State.DEPLOYMENT:
 		_reset_round_visuals()
 		sfx.play("start", -4.0)
+	if state == Cfg.State.COUNTDOWN and prev_state == Cfg.State.DEPLOYMENT:
+		sfx.play("start", -6.0)
 	if state == Cfg.State.WAITING and prev_state != Cfg.State.WAITING:
 		_reset_round_visuals()
+	deployment = d.get("dp", 0.0)
 	countdown = d["ct"]
 	winner = d["win"]
 	if time > _sel_lock_until:
@@ -443,23 +723,26 @@ func _handle_event(ev: Array) -> void:
 			var team: int = ev[1]
 			var weapon: int = Cfg.SQUAD_WEAPONS[ev[2]]
 			var from: Vector2 = ev[3]
-			var first := true
+			var spell_color := Color(0.12, 0.92, 1.0) if team == slot else Color(1.0, 0.16, 0.72)
 			for end in ev[4]:
-				tracers.append({"a": from, "b": end, "t": 0.12, "max": 0.12,
-					"color": Color(1.0, 0.95, 0.6) if team == slot else Color(1.0, 0.6, 0.5),
-					"flash": first, "hit": ev[5] > 0})
-				first = false
-			var snd: String = ["rifle", "smg", "shotgun"][weapon]
+				tracers.append({"a": from, "b": end, "t": 0.26, "max": 0.26,
+					"color": spell_color, "seed": randf() * TAU, "hit": ev[5] > 0})
+				_spawn_magic_burst(end, spell_color.lerp(Color.WHITE, 0.35), (end - from).normalized(), 7 if ev[5] > 0 else 3)
+			_spawn_magic_burst(from, spell_color, Vector2.from_angle(own[ev[2]]["disp_facing"]) if team == slot and ev[2] < own.size() else Vector2.RIGHT, 8)
+			var snd: String = ["cast", "cast_fast", "cast_burst"][weapon]
 			sfx.play(snd, -10.0 if team == slot else -6.0)
 			if ev[5] > 0 and team != slot:
 				sfx.play("hit", -4.0)
 		"incoming":
 			hurts.append({"idx": ev[1], "angle": ev[2], "dmg": ev[3], "t": 1.2})
-			sfx.play("smg" if ev[3] == 0 else "hit", -12.0 if ev[3] == 0 else -4.0)
+			if ev[1] < own.size():
+				var incoming_dir := Vector2.from_angle(ev[2])
+				_spawn_magic_burst(own[ev[1]]["disp"] + incoming_dir * Cfg.SOLDIER_RADIUS, Color(1.0, 0.18, 0.72), -incoming_dir, 9)
+			sfx.play("cast_fast" if ev[3] == 0 else "hit", -12.0 if ev[3] == 0 else -4.0)
 		"kill":
 			var team: int = ev[1]
 			var idx: int = ev[2]
-			corpses.append({"pos": ev[3], "team": team})
+			corpses.append({"pos": ev[3], "team": team, "idx": idx})
 			var wname: String = Cfg.WEAPONS[Cfg.SQUAD_WEAPONS[idx]]["name"]
 			if team == slot:
 				_msg("Your %s is down!" % wname, Color(1.0, 0.4, 0.3))
@@ -472,6 +755,20 @@ func _msg(text: String, col: Color) -> void:
 	messages.append({"text": text, "color": col, "t": 3.0})
 	while messages.size() > 4:
 		messages.pop_front()
+
+
+func _spawn_magic_burst(at: Vector2, col: Color, direction: Vector2, amount: int) -> void:
+	var base_angle := direction.angle() if direction.length_squared() > 0.001 else 0.0
+	for _i in amount:
+		var angle := base_angle + randf_range(-0.95, 0.95)
+		magic_particles.append({
+			"pos": at + Vector2.from_angle(angle) * randf_range(0.0, 4.0),
+			"vel": Vector2.from_angle(angle) * randf_range(35.0, 115.0),
+			"t": randf_range(0.20, 0.42),
+			"max": 0.42,
+			"color": col,
+			"size": randf_range(1.5, 3.3),
+		})
 
 
 func smoke_list() -> Array:
@@ -487,6 +784,10 @@ func smoke_list() -> Array:
 
 func _process(dt: float) -> void:
 	time += dt
+	if menu_layer != null and menu_layer.visible and menu_panorama != null:
+		var travel := maxf(0.0, menu_panorama.size.x - get_viewport().get_visible_rect().size.x)
+		var flythrough := 0.5 - 0.5 * cos(time * 0.15)
+		menu_panorama.position = Vector2(-travel * flythrough, sin(time * 0.21) * 8.0)
 	var k := 1.0 - exp(-18.0 * dt)
 	for o in own:
 		o["disp"] = o["disp"].lerp(o["pos"], k)
@@ -496,6 +797,7 @@ func _process(dt: float) -> void:
 		e["disp"] = e["disp"].lerp(e["pos"], k)
 		e["disp_facing"] = lerp_angle(e["disp_facing"], e["facing"], k)
 	_tick_list(tracers, dt)
+	_tick_magic_particles(dt)
 	_tick_list(hurts, dt)
 	_tick_list(scan_fx, dt)
 	_tick_list(ghosts, dt)
@@ -503,13 +805,33 @@ func _process(dt: float) -> void:
 	for a in 4:
 		ability_flash[a] = maxf(0.0, ability_flash[a] - dt * 2.0)
 	if vision_mask:
-		vision_mask.reveal_all = state == Cfg.State.ENDED
+		vision_mask.reveal_all = state == Cfg.State.DEPLOYMENT or state == Cfg.State.COUNTDOWN or state == Cfg.State.ENDED
+	if world_light:
+		if state == Cfg.State.DEPLOYMENT:
+			world_light.color = Color(1.0, 0.98, 0.90)
+		elif state == Cfg.State.COUNTDOWN:
+			var light_level := _countdown_light_level()
+			world_light.color = Color(light_level, light_level * 0.96, light_level * 0.82)
+		else:
+			world_light.color = Color.WHITE
 	# Continuous right-drag facing
-	if slot >= 0 and Input.is_mouse_button_pressed(MOUSE_BUTTON_RIGHT) and not menu_layer.visible:
+	if slot >= 0 and Input.is_mouse_button_pressed(MOUSE_BUTTON_RIGHT) and not menu_layer.visible and not pause_overlay.visible:
 		_face_send_t -= dt
 		if _face_send_t <= 0.0:
 			_face_send_t = 0.05
 			Net.c_face.rpc_id(1, world.get_local_mouse_position())
+
+
+func _countdown_light_level() -> float:
+	var elapsed := clampf(Cfg.COUNTDOWN - countdown, 0.0, Cfg.COUNTDOWN)
+	# One blink, a long pause, two blinks, three blinks, then a final shutdown.
+	for centre in [0.18, 0.90, 1.08, 1.55, 1.71, 1.87]:
+		var distance: float = absf(elapsed - centre)
+		if distance < 0.065:
+			return lerpf(0.12, 1.0, smoothstep(0.0, 0.065, distance))
+	if elapsed >= 2.45:
+		return lerpf(1.0, 0.12, smoothstep(2.45, 2.62, elapsed))
+	return 1.0
 
 
 func _tick_list(list: Array, dt: float) -> void:
@@ -519,12 +841,35 @@ func _tick_list(list: Array, dt: float) -> void:
 			list.remove_at(i)
 
 
+func _tick_magic_particles(dt: float) -> void:
+	for i in range(magic_particles.size() - 1, -1, -1):
+		var p: Dictionary = magic_particles[i]
+		p["t"] -= dt
+		p["pos"] += p["vel"] * dt
+		p["vel"] *= exp(-5.0 * dt)
+		if p["t"] <= 0.0:
+			magic_particles.remove_at(i)
+
+
 # --------------------------------------------------------------------------
 # Input
 # --------------------------------------------------------------------------
 
 func _unhandled_input(event: InputEvent) -> void:
+	if event is InputEventKey and event.pressed and not event.echo \
+			and (event.keycode == KEY_ESCAPE or event.physical_keycode == KEY_ESCAPE):
+		if slot >= 0 and not menu_layer.visible:
+			if pause_overlay.visible and pause_settings_panel.visible:
+				_show_pause_main()
+			elif pause_overlay.visible:
+				_close_pause()
+			else:
+				_open_pause()
+			get_viewport().set_input_as_handled()
+		return
 	if slot < 0 or menu_layer.visible or not Net.is_online():
+		return
+	if pause_overlay.visible:
 		return
 	if event is InputEventMouseButton and event.pressed:
 		var mp := world.get_local_mouse_position()
@@ -539,10 +884,12 @@ func _unhandled_input(event: InputEvent) -> void:
 			_face_send_t = 0.05
 			Net.c_face.rpc_id(1, mp)
 	elif event is InputEventKey and event.pressed and not event.echo:
+		var number_selection := _number_key_selection(event)
+		if number_selection >= 0:
+			_select(number_selection)
+			get_viewport().set_input_as_handled()
+			return
 		match event.keycode:
-			KEY_1: _select(0)
-			KEY_2: _select(1)
-			KEY_3: _select(2)
 			KEY_TAB: _cycle_select()
 			KEY_Q: _use_ability(Cfg.Ability.SMOKE, false)
 			KEY_E: _use_ability(Cfg.Ability.SCAN, false)
@@ -559,6 +906,16 @@ func _unhandled_input(event: InputEvent) -> void:
 					Net.c_rematch.rpc_id(1)
 			_: return
 		get_viewport().set_input_as_handled()
+
+
+func _number_key_selection(event: InputEventKey) -> int:
+	for code in [event.keycode, event.physical_keycode]:
+		match code:
+			KEY_1, KEY_KP_1: return 0
+			KEY_2, KEY_KP_2: return 1
+			KEY_3, KEY_KP_3: return 2
+			KEY_4, KEY_KP_4: return 3
+	return -1
 
 
 func _select(idx: int) -> void:
@@ -586,6 +943,7 @@ func _soldier_name(idx: int) -> String:
 		0: return "ALPHA"
 		1: return "BRAVO"
 		2: return "CHARLIE"
+		3: return "DELTA"
 		_: return "SOLDIER"
 
 

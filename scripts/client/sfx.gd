@@ -18,6 +18,9 @@ func _ready() -> void:
 	_streams["deny"] = _tone(220.0, 180.0, 0.16, 0.5)
 	_streams["voice"] = _tone(900.0, 1200.0, 0.06, 0.35)
 	_streams["start"] = _tone(660.0, 990.0, 0.35, 0.5)
+	_streams["cast"] = _tone(420.0, 1320.0, 0.16, 0.48)
+	_streams["cast_fast"] = _tone(680.0, 1580.0, 0.10, 0.38)
+	_streams["cast_burst"] = _tone(280.0, 1040.0, 0.22, 0.58)
 	for i in 14:
 		var p := AudioStreamPlayer.new()
 		add_child(p)
