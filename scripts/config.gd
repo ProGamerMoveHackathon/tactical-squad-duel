@@ -50,13 +50,16 @@ const ABILITIES := {
 ## Spoken phrases that trigger each ability (lower-case, matched as whole words /
 ## word sequences). Includes a few common speech-recognition mishearings.
 const VOICE_PHRASES := {
-	Ability.SMOKE: ["smoke", "smoked", "smokes", "smoking", "smog", "smoky", "pop smoke"],
-	Ability.SCAN: ["scan", "scans", "scanning", "scanner", "radar", "ping"],
-	Ability.SUPPRESS: ["suppress", "suppressing", "suppression", "surpress", "oppress", "cover fire", "covering fire"],
-	Ability.RUSH: ["rush", "rushing", "russia", "brush", "sprint", "go go"],
+	Ability.SMOKE: ["smoke", "smoked", "smokes", "smoking", "smog", "smoky", "pop smoke", "smoke grenade", "throw smoke"],
+	Ability.SCAN: ["scan", "scans", "scanning", "scanner", "radar", "ping", "sonar", "pulse"],
+	Ability.SUPPRESS: ["suppress", "suppressing", "suppression", "surpress", "oppress", "cover fire", "covering fire", "suppressing fire"],
+	Ability.RUSH: ["rush", "rushing", "russia", "brush", "sprint", "dash", "boost", "go go"],
 }
 
-## Voice command vocabulary for 100% hands-free tactical control.
+# --- Voice command vocabulary ------------------------------------------------
+# Grammar: [who] [action] [where]. Every list is matched on whole words and the
+# longest phrase wins, so "kitchen door" beats "kitchen" and "play again" beats "play".
+
 const VOICE_SUBJECTS := {
 	0: ["alpha", "alfa", "one", "first", "rifle", "sniper"],
 	1: ["bravo", "two", "second", "smg", "gunner"],
@@ -65,31 +68,63 @@ const VOICE_SUBJECTS := {
 	-1: ["squad", "all", "team", "everyone"],
 }
 
-const VOICE_CALLOUTS := {
-	"mid": ["mid", "middle", "center", "centre", "buffet", "salad", "salad bar"],
-	"north": ["north", "top", "upper", "kitchen", "kuche", "prep"],
-	"south": ["south", "bottom", "lower", "dining", "tables", "terrasse", "polyterrasse"],
-	"base": ["base", "home", "spawn", "entrance", "zugang", "west"],
-	"yard": ["yard", "courtyard", "patio", "tray", "trays", "tablett"],
-	"choke": ["choke", "door", "bridge", "gate", "kitchen door"],
-	"flank": ["flank", "alley", "side", "kasse", "cashier", "checkout"],
-	"pillar": ["pillar", "cover", "box", "rock", "column", "post"],
-	"enemy": ["enemy", "enemy base", "their base", "exit", "ausgang", "east"],
+## Named map points. `tile` is in tiles from Blue's point of view; Red gets the
+## point-mirrored spot, so every callout sits at the same place on both players'
+## screens. `mirror` callouts also get an "enemy <name>" twin on the far half.
+## The label is drawn on the map and is exactly what the player should say.
+const CALLOUTS := {
+	"base": {"label": "BASE", "tile": Vector2(3.5, 11.0), "mirror": true,
+		"words": ["base", "bass", "home", "spawn", "entrance", "zugang"]},
+	"kitchen": {"label": "KITCHEN", "tile": Vector2(9.5, 5.5), "mirror": true,
+		"words": ["kitchen", "kitchen door", "prep", "choke"]},
+	"buffet": {"label": "BUFFET", "tile": Vector2(9.5, 9.5), "mirror": true,
+		"words": ["buffet", "buffets", "grill", "trays", "tray", "yard"]},
+	"cashier": {"label": "CASHIER", "tile": Vector2(14.0, 12.5), "mirror": true,
+		"words": ["cashier", "cashiers", "checkout", "register", "kasse", "kassa", "flank"]},
+	"tables": {"label": "TABLES", "tile": Vector2(9.5, 16.5), "mirror": true,
+		"words": ["tables", "table", "dining", "dining hall"]},
+	"mid": {"label": "MID", "tile": Vector2(20.0, 11.0), "mirror": false,
+		"words": ["mid", "middle", "center", "centre", "salad", "salad bar"]},
+	"top_lane": {"label": "TOP LANE", "tile": Vector2(20.0, 1.5), "mirror": false,
+		"words": ["top lane", "toplane", "upper lane", "corridor", "hallway"]},
+	"bottom_lane": {"label": "BOTTOM LANE", "tile": Vector2(20.0, 19.5), "mirror": false,
+		"words": ["bottom lane", "lower lane", "terrace", "window", "windows"]},
 }
+## "enemy kitchen", "their tables", ... address the mirrored twin of a callout.
+const VOICE_ENEMY_PREFIXES := ["enemy", "enemies", "their", "opponent", "opponents"]
+## Extra ways to say the enemy spawn (the twin of "base").
+const VOICE_ENEMY_BASE_WORDS := ["enemy", "exit", "ausgang", "enemy spawn"]
 
+## Screen-relative directions (x = right / towards the enemy, y = down).
+## Both players see their base on the left, so these mean the same for both teams.
 const VOICE_DIRECTIONS := {
-	"north": ["north", "up", "upward"],
-	"south": ["south", "down", "downward"],
-	"east": ["east", "forward", "front", "ahead", "right"],
-	"west": ["west", "back", "rear", "behind", "left"],
+	"n": ["north", "up", "upward", "upwards", "top", "upper"],
+	"s": ["south", "down", "downward", "downwards", "bottom", "lower"],
+	"e": ["east", "right", "forward", "forwards", "ahead", "advance", "push", "front", "onward"],
+	"w": ["west", "left", "back", "backward", "backwards", "retreat", "fall back", "rear", "behind"],
+	"ne": ["northeast"],
+	"nw": ["northwest"],
+	"se": ["southeast"],
+	"sw": ["southwest"],
 }
+const VOICE_DIRECTION_VECTORS := {
+	"n": Vector2(0, -1), "s": Vector2(0, 1), "e": Vector2(1, 0), "w": Vector2(-1, 0),
+	"ne": Vector2(1, -1), "nw": Vector2(-1, -1), "se": Vector2(1, 1), "sw": Vector2(-1, 1),
+}
+## How far a direction order walks (px). Soldiers stop early at walls.
+const VOICE_STEP := 288.0
+const VOICE_STEP_SHORT := 96.0
+const VOICE_STEP_FAR := 2000.0
 
 const VOICE_ACTIONS := {
-	"move": ["move to", "move", "go to", "go", "advance to", "advance", "run to", "run", "push to", "push", "walk to", "walk", "proceed to", "proceed", "step", "fall back to", "fall back", "retreat to", "retreat"],
-	"watch": ["watch", "face", "look", "aim", "cover", "point", "hold angle"],
-	"halt": ["stop", "halt", "hold position", "hold", "stay", "freeze", "cancel"],
-	"deploy": ["deploy", "ready", "start", "play", "join"],
-	"rematch": ["rematch", "play again", "again", "restart"],
+	"watch": ["watch", "look", "face", "aim", "cover", "check", "guard", "eyes on", "point", "turn"],
+	"halt": ["stop", "halt", "hold", "hold position", "freeze", "stay", "wait", "stand still", "cancel"],
+	"next": ["next", "cycle", "switch"],
+	"select": ["select", "switch to", "unit", "soldier", "number"],
+	"short": ["a bit", "a little", "little", "bit", "slightly", "step", "inch"],
+	"far": ["far", "all the way", "full", "until the wall", "max"],
+	"deploy": ["deploy", "join game", "start game", "lets go", "let s go"],
+	"rematch": ["rematch", "play again", "new match", "new game", "one more"],
 }
 ## Recently moved enemies are what "Scan" reveals.
 const SCAN_MOVE_MEMORY := 1.5

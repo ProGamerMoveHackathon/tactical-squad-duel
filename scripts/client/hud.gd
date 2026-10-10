@@ -2,6 +2,7 @@ extends Control
 ## Bottom HUD bar + top banners. Pure _draw() for compactness.
 
 const Cfg = preload("res://scripts/config.gd")
+const Voice = preload("res://scripts/client/voice.gd")
 
 const BAR_H := 108.0
 
@@ -37,6 +38,118 @@ func _text_center(center_x: float, y: float, text: String, fs: int, col := Color
 	if outline:
 		draw_string_outline(font, Vector2(center_x - w * 0.5, y), text, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, 6, Color(0, 0, 0, 0.8))
 	draw_string(font, Vector2(center_x - w * 0.5, y), text, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, col)
+
+
+func _text_w(text: String, fs: int) -> float:
+	return font.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x
+
+
+## Shortens text to max_w with "...". keep_end keeps the newest words of live speech.
+func _fit(text: String, fs: int, max_w: float, keep_end := false) -> String:
+	if _text_w(text, fs) <= max_w:
+		return text
+	var t := text
+	while t.length() > 1 and _text_w(("..." + t) if keep_end else (t + "..."), fs) > max_w:
+		t = t.substr(1) if keep_end else t.left(-1)
+	return ("..." + t) if keep_end else (t + "...")
+
+
+# ---- Voice feedback ----------------------------------------------------------
+
+const VOICE_HINTS := [
+	"\"bravo go to kitchen\"", "\"squad watch right\"", "\"smoke mid\"",
+	"\"alpha fall back a bit\"", "\"charlie push enemy tables\"", "\"go up\"", "\"stop\"",
+]
+
+
+func _mic_status_text() -> String:
+	var v = game.voice
+	match v.status:
+		"listening": return "HEARING YOU" if v.speaking else "LISTENING"
+		"off": return "MIC OFF"
+		"web only": return "WEB BUILD ONLY"
+		"unsupported browser": return "NO VOICE IN THIS BROWSER"
+		"mic blocked": return "MIC BLOCKED"
+		"no microphone": return "NO MICROPHONE"
+		"speech service offline": return "SPEECH SERVICE OFFLINE"
+	return str(v.status).to_upper()
+
+
+func _mic_color() -> Color:
+	var v = game.voice
+	if v.enabled and v.status == "listening":
+		return Color(1.0, 0.9, 0.35) if v.speaking else Color(0.35, 1.0, 0.6)
+	if v.status == "off" or v.status == "web only":
+		return Color(0.55, 0.57, 0.6)
+	return Color(1.0, 0.6, 0.3)
+
+
+func _draw_mic_icon(c: Vector2, col: Color) -> void:
+	draw_rect(Rect2(c.x - 3, c.y - 6, 6, 8), col)
+	draw_circle(Vector2(c.x, c.y - 6), 3.0, col)
+	draw_circle(Vector2(c.x, c.y + 2), 3.0, col)
+	draw_arc(Vector2(c.x, c.y + 1), 6.0, 0.15, PI - 0.15, 10, col, 1.5)
+	draw_line(Vector2(c.x, c.y + 7), Vector2(c.x, c.y + 10), col, 1.5)
+	draw_line(Vector2(c.x - 3, c.y + 10), Vector2(c.x + 3, c.y + 10), col, 1.5)
+
+
+## Bottom-right transcript: live words while speaking plus the last few
+## utterances with what they triggered (or "not understood").
+func _draw_voice_panel(vw: float, top: float) -> void:
+	var v = game.voice
+	var problem: bool = not v.status in ["listening", "off", "web only"]
+	var entries := []
+	for h in v.history:
+		if h["age"] < Voice.HISTORY_TTL:
+			entries.append(h)
+	entries = entries.slice(maxi(0, entries.size() - 3))
+	if not v.enabled and not problem and entries.is_empty() and v.interim_text == "":
+		return
+
+	const W := 340.0
+	const ENTRY_H := 36.0
+	var h_total := 30.0 + entries.size() * ENTRY_H + 26.0
+	var x0: float = vw - W - 8.0
+	var y0: float = top - 8.0 - h_total
+	var col := _mic_color()
+	draw_rect(Rect2(x0, y0, W, h_total), Color(0.03, 0.04, 0.06, 0.8))
+	draw_rect(Rect2(x0, y0, W, h_total), Color(col, 0.55), false, 1.5)
+
+	# Header: mic icon, state, level bars while speech is detected
+	_draw_mic_icon(Vector2(x0 + 14, y0 + 14), col)
+	_text(Vector2(x0 + 28, y0 + 19), "VOICE  " + _mic_status_text(), 12, col)
+	_text(Vector2(x0 + W - 70, y0 + 19), "V to toggle", 10, Color(0.5, 0.55, 0.6))
+	if v.enabled:
+		for i in 5:
+			var lvl: float = 0.25 + 0.75 * absf(sin(game.time * (7.0 + i * 1.7) + i)) if v.speaking else 0.15
+			var bh := 12.0 * lvl
+			draw_rect(Rect2(x0 + W - 108 + i * 5, y0 + 20 - bh, 3, bh), Color(col, 0.9))
+	draw_line(Vector2(x0 + 6, y0 + 27), Vector2(x0 + W - 6, y0 + 27), Color(1, 1, 1, 0.08), 1.0)
+
+	# History, oldest at the top
+	var y := y0 + 30.0
+	for h in entries:
+		var a: float = clampf((Voice.HISTORY_TTL - h["age"]) / 1.5, 0.0, 1.0)
+		_text(Vector2(x0 + 10, y + 14), _fit("\"%s\"" % h["text"], 13, W - 20), 13, Color(0.92, 0.94, 0.97, a))
+		if h["tags"].is_empty():
+			_text(Vector2(x0 + 18, y + 30), "not a command", 11, Color(0.6, 0.62, 0.66, a))
+		else:
+			_text(Vector2(x0 + 18, y + 30), _fit("> " + "  +  ".join(h["tags"]), 11, W - 28), 11, Color(0.4, 1.0, 0.65, a))
+		y += ENTRY_H
+
+	# Live line
+	var ly := y + 18.0
+	if v.interim_text != "":
+		var caret := "_" if fmod(game.time, 0.8) < 0.4 else " "
+		_text(Vector2(x0 + 10, ly), _fit(v.interim_text, 13, W - 30, true) + caret, 13, Color(1.0, 0.88, 0.35))
+	elif problem:
+		var help := "Allow the microphone for this page, then press V" if v.status == "mic blocked" else "Voice unavailable - keyboard and mouse still work"
+		_text(Vector2(x0 + 10, ly), _fit(help, 11, W - 20), 11, Color(1.0, 0.7, 0.45))
+	elif v.enabled:
+		var hint: String = VOICE_HINTS[int(game.time / 3.5) % VOICE_HINTS.size()]
+		_text(Vector2(x0 + 10, ly), "try: " + hint, 11, Color(0.5, 0.58, 0.66))
+	else:
+		_text(Vector2(x0 + 10, ly), "mic off - press V to talk", 11, Color(0.5, 0.58, 0.66))
 
 
 func _draw() -> void:
@@ -139,10 +252,12 @@ func _draw() -> void:
 		var alive: bool = game.enemy_alive[i] if i < game.enemy_alive.size() else true
 		var c := Vector2(vx + 92 + i * 18, top + 80)
 		if alive:
-			draw_circle(c, 6, en_col)
+			draw_circle(c, 4.5, en_col)
 		else:
-			draw_arc(c, 6, 0, TAU, 12, en_col.darkened(0.5), 1.5)
-			draw_line(c + Vector2(-4, -4), c + Vector2(4, 4), en_col.darkened(0.3), 2)
+			draw_arc(c, 4.5, 0, TAU, 12, en_col.darkened(0.5), 1.2)
+			draw_line(c + Vector2(-3, -3), c + Vector2(3, 3), en_col.darkened(0.3), 1.5)
+
+	_draw_voice_panel(vw, top)
 
 	# ---- Top info ---------------------------------------------------------
 	var n0: String = game.names[0] if game.names.size() > 0 else ""

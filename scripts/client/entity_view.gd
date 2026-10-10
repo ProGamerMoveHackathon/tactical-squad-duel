@@ -3,6 +3,7 @@ extends Node2D
 ## scan pings, damage indicators. Lives inside the (possibly rotated) World node.
 
 const Cfg = preload("res://scripts/config.gd")
+const MapData = preload("res://scripts/map_data.gd")
 
 var game  # ClientGame
 var font: Font
@@ -51,21 +52,10 @@ func _draw() -> void:
 		draw_line(p + Vector2(-6, -6), p + Vector2(6, 6), col, 2.5)
 		draw_line(p + Vector2(-6, 6), p + Vector2(6, -6), col, 2.5)
 
-	const POLY_BADGES := {
-		"base": "ZUGANG",
-		"yard": "TRAYS",
-		"choke": "CHOKE",
-		"flank": "KASSE",
-		"pillar": "PILLAR",
-		"mid": "BUFFET",
-		"north": "KÜCHE",
-		"south": "TABLES",
-		"enemy": "AUSGANG",
-	}
-	# Tactical Callout Landmarks (always visible for voice navigation)
-	for cid in game.map.CALLOUT_POSITIONS:
-		var cp: Vector2 = game.map.callout_position(cid, my_team)
-		_draw_callout_badge(cp, POLY_BADGES.get(cid, cid.to_upper()))
+	# Voice callouts (always visible; the label is what the player says)
+	for cid in MapData.callout_ids():
+		var col := Color(1.0, 0.55, 0.5) if cid.begins_with("enemy_") else Color(0.45, 0.85, 1.0)
+		_draw_callout_badge(game.map.callout_position(cid, my_team), MapData.callout_label(cid), col)
 
 	# Vision/fire cones stay hidden throughout deployment and countdown.
 	if game.state == Cfg.State.PLAYING:
@@ -98,6 +88,14 @@ func _draw() -> void:
 				var wp: Vector2 = o["disp"] + Vector2.from_angle(o["watch"]) * 46.0
 				draw_line(o["disp"] + Vector2.from_angle(o["watch"]) * 30.0, wp, Color(1, 1, 0.6, 0.8), 2.0)
 				draw_circle(wp, 3.0, Color(1, 1, 0.6, 0.8))
+
+	# Path targets of the other (unselected) soldiers, so squad orders are visible
+	for o in game.own:
+		if o["alive"] and o["idx"] != game.selected and o["target"].distance_to(o["disp"]) > 4.0:
+			_draw_dashed(o["disp"], o["target"], Color(1, 1, 1, 0.18))
+			draw_arc(o["target"], 4.0, 0.0, TAU, 12, Color(1, 1, 1, 0.35), 1.5)
+
+	_draw_voice_pings()
 
 	# Last-known enemy positions (ghosts)
 	for g in game.ghosts:

@@ -100,6 +100,26 @@ func c_ability(ability: int, target: Vector2, via_voice: bool) -> void:
 		server.on_ability(multiplayer.get_remote_sender_id(), ability, target, via_voice)
 
 
+## Unit-addressed orders (voice squad commands) that don't change the selection.
+## queue = append to the current path instead of replacing it.
+@rpc("any_peer", "call_remote", "reliable")
+func c_unit_move(idx: int, target: Vector2, queue: bool) -> void:
+	if server:
+		server.on_unit_move(multiplayer.get_remote_sender_id(), idx, target, queue)
+
+
+@rpc("any_peer", "call_remote", "reliable")
+func c_unit_face(idx: int, target: Vector2) -> void:
+	if server:
+		server.on_unit_face(multiplayer.get_remote_sender_id(), idx, target)
+
+
+@rpc("any_peer", "call_remote", "reliable")
+func c_unit_stop(idx: int) -> void:
+	if server:
+		server.on_unit_stop(multiplayer.get_remote_sender_id(), idx)
+
+
 @rpc("any_peer", "call_remote", "reliable")
 func c_rematch() -> void:
 	if server:
