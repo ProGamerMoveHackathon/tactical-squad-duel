@@ -30,6 +30,9 @@ func _ready() -> void:
 
 func host(port: int, cert_path := "", key_path := "") -> Error:
 	peer = WebSocketMultiplayerPeer.new()
+	peer.inbound_buffer_size = 8 * 1024 * 1024
+	peer.outbound_buffer_size = 8 * 1024 * 1024
+	peer.max_queued_packets = 16384
 	var tls: TLSOptions = null
 	if cert_path != "" and key_path != "":
 		var cert := X509Certificate.new()
@@ -48,6 +51,9 @@ func host(port: int, cert_path := "", key_path := "") -> Error:
 func join(url: String) -> Error:
 	leave()
 	peer = WebSocketMultiplayerPeer.new()
+	peer.inbound_buffer_size = 8 * 1024 * 1024
+	peer.outbound_buffer_size = 8 * 1024 * 1024
+	peer.max_queued_packets = 16384
 	var err := peer.create_client(url)
 	if err != OK:
 		return err
@@ -106,6 +112,26 @@ func c_ability(ability: int, target: Vector2, via_voice: bool) -> void:
 		server.on_ability(multiplayer.get_remote_sender_id(), ability, target, via_voice)
 
 
+## Unit-addressed orders (voice squad commands) that don't change the selection.
+## queue = append to the current path instead of replacing it.
+@rpc("any_peer", "call_remote", "reliable")
+func c_unit_move(idx: int, target: Vector2, queue: bool) -> void:
+	if server:
+		server.on_unit_move(multiplayer.get_remote_sender_id(), idx, target, queue)
+
+
+@rpc("any_peer", "call_remote", "reliable")
+func c_unit_face(idx: int, target: Vector2) -> void:
+	if server:
+		server.on_unit_face(multiplayer.get_remote_sender_id(), idx, target)
+
+
+@rpc("any_peer", "call_remote", "reliable")
+func c_unit_stop(idx: int) -> void:
+	if server:
+		server.on_unit_stop(multiplayer.get_remote_sender_id(), idx)
+
+
 @rpc("any_peer", "call_remote", "reliable")
 func c_rematch() -> void:
 	if server:
@@ -121,7 +147,7 @@ func s_welcome(slot: int) -> void:
 	welcomed.emit(slot)
 
 
-@rpc("authority", "call_remote", "reliable")
+@rpc("authority", "call_remote", "unreliable_ordered")
 func s_snapshot(data: Dictionary) -> void:
 	snapshot_received.emit(data)
 

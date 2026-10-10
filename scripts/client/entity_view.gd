@@ -3,6 +3,7 @@ extends Node2D
 ## scan pings, damage indicators. Lives inside the (possibly rotated) World node.
 
 const Cfg = preload("res://scripts/config.gd")
+const MapData = preload("res://scripts/map_data.gd")
 
 var game  # ClientGame
 var font: Font
@@ -51,21 +52,10 @@ func _draw() -> void:
 		draw_line(p + Vector2(-6, -6), p + Vector2(6, 6), col, 2.5)
 		draw_line(p + Vector2(-6, 6), p + Vector2(6, -6), col, 2.5)
 
-	const POLY_BADGES := {
-		"base": "ZUGANG",
-		"yard": "TRAYS",
-		"choke": "CHOKE",
-		"flank": "KASSE",
-		"pillar": "PILLAR",
-		"mid": "BUFFET",
-		"north": "KÜCHE",
-		"south": "TABLES",
-		"enemy": "AUSGANG",
-	}
-	# Tactical Callout Landmarks (always visible for voice navigation)
-	for cid in game.map.CALLOUT_POSITIONS:
-		var cp: Vector2 = game.map.callout_position(cid, my_team)
-		_draw_callout_badge(cp, POLY_BADGES.get(cid, cid.to_upper()))
+	# Voice callouts (always visible; the label is what the player says)
+	for cid in MapData.callout_ids():
+		var col := Color(1.0, 0.55, 0.5) if cid.begins_with("enemy_") else Color(0.45, 0.85, 1.0)
+		_draw_callout_badge(game.map.callout_position(cid, my_team), MapData.callout_label(cid), col)
 
 	# Vision/fire cones stay hidden throughout deployment and countdown.
 	if game.state == Cfg.State.PLAYING:
@@ -97,6 +87,14 @@ func _draw() -> void:
 				var wp: Vector2 = o["disp"] + Vector2.from_angle(o["watch"]) * 46.0
 				draw_line(o["disp"] + Vector2.from_angle(o["watch"]) * 30.0, wp, Color(1, 1, 0.6, 0.8), 2.0)
 				draw_circle(wp, 3.0, Color(1, 1, 0.6, 0.8))
+
+	# Path targets of the other (unselected) soldiers, so squad orders are visible
+	for o in game.own:
+		if o["alive"] and o["idx"] != game.selected and o["target"].distance_to(o["disp"]) > 4.0:
+			_draw_dashed(o["disp"], o["target"], Color(1, 1, 1, 0.18))
+			draw_arc(o["target"], 4.0, 0.0, TAU, 12, Color(1, 1, 1, 0.35), 1.5)
+
+	_draw_voice_pings()
 
 	# Last-known enemy positions (ghosts)
 	for g in game.ghosts:
@@ -302,8 +300,29 @@ func _draw_dashed(a: Vector2, b: Vector2, col: Color) -> void:
 		t += 14.0
 
 
-func _draw_callout_badge(p: Vector2, text: String) -> void:
-	var col := Color(0.4, 0.78, 1.0, 0.5)
-	draw_circle(p, 2.5, col)
-	draw_arc(p, 8.0, 0.0, TAU, 16, Color(col.r, col.g, col.b, 0.25), 1.0)
-	_draw_label(p + Vector2(0, -12), "[" + text + "]", col, 10)
+func _draw_callout_badge(p: Vector2, text: String, col: Color) -> void:
+	draw_circle(p, 3.0, Color(col, 0.8))
+	draw_arc(p, 8.0, 0.0, TAU, 20, Color(col, 0.35), 1.0)
+	# Pill drawn counter-rotated so it stays upright for the rotated Red view.
+	draw_set_transform(p, -game.world_rotation)
+	var fs := 10
+	var w := font.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x
+	var r := Rect2(-w * 0.5 - 5.0, -27.0, w + 10.0, 15.0)
+	draw_rect(r, Color(0.02, 0.03, 0.05, 0.62))
+	draw_rect(r, Color(col, 0.45), false, 1.0)
+	draw_string(font, Vector2(-w * 0.5, -16.0), text, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, Color(col, 0.95))
+	draw_set_transform_matrix(Transform2D.IDENTITY)
+
+
+func _draw_voice_pings() -> void:
+	for ping in game.voice_pings:
+		var k: float = 1.0 - ping["t"] / ping["max"]
+		var a: float = 1.0 - k
+		var p: Vector2 = ping["pos"]
+		var col := Color(0.4, 1.0, 0.7)
+		draw_arc(p, 6.0 + 22.0 * k, 0.0, TAU, 28, Color(col, 0.9 * a), 2.5)
+		draw_arc(p, 4.0 + 10.0 * k, 0.0, TAU, 20, Color(col, 0.6 * a), 1.5)
+		draw_circle(p, 3.0, Color(col, a))
+		if ping["label"] != "":
+			_draw_label(p + Vector2(0, 26.0).rotated(-game.world_rotation), ping["label"], Color(col, a), 12)
+
