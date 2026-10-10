@@ -85,6 +85,7 @@ If you don't have Godot installed on your machine:
 | **Halt / Stop** | — | *"Stop"*, *"Alpha halt"*, *"Squad hold"* | Cancels path and immediately holds position. |
 | **Aim / Watch Angle** | **Right Click** or **Right-Drag** | *"Watch left"*, *"Bravo cover mid"*, *"Squad look up"* | Rotates firing cone to cover that direction or callout. |
 | **Chained Orders** | — | *"Bravo go to buffet and watch right"* | Several orders in one sentence; moves queue up. |
+| **Spell by Slot** | `W`, `E`, `R` | *"Spell one"*, *"Ability two"*, *"Cast E"*, *"Third spell mid"* | Casts the ability mapped to slot W / E / R for the active or named caster. |
 | **Fog Magic** | Equipped slot (`W`/`E`/`R`) | *"Fog"*, *"Cast fog"* | Conjures vision-blocking fog a short distance ahead. |
 | **Motion Scan** | Equipped slot | *"Scan"* | Emits radar pulse revealing moving enemies within 460px. |
 | **Rush** | Equipped slot | *"Rush"*, *"Sprint"* | Boosts movement speed by +65% for 4s. |
@@ -130,7 +131,11 @@ All balancing constants live in [`scripts/config.gd`](file:///Users/cyrill/hacka
 - **Abilities**: Adjust cooldowns, durations, and effects in the `ABILITIES` dictionary.
 
 ### How to Add or Edit Voice Phrases
-All voice vocabulary lives in [`scripts/config.gd`](file:///Users/cyrill/hackathon-game/scripts/config.gd): `VOICE_SUBJECTS` (who), `CALLOUTS` (named map points with their badge label, position and spoken words), `VOICE_DIRECTIONS`, `VOICE_ACTIONS` and `VOICE_PHRASES` (abilities). Add alternative spellings or common speech recognizer mishearings, then run `godot --headless --path . --script res://tests/test_voice_parser.gd`. See [VOICE_CONTROL.md](VOICE_CONTROL.md#-developer-guide) for details.
+All voice vocabulary lives in [`scripts/config.gd`](file:///Users/cyrill/hackathon-game/scripts/config.gd): `VOICE_SUBJECTS` (who), `CALLOUTS` (named map points with their badge label, position and spoken words), `VOICE_DIRECTIONS`, `VOICE_ACTIONS` and `VOICE_PHRASES` (abilities). Add alternative spellings or common speech recognizer mishearings, then run:
+```bash
+GODOT=$(bash -c 'source tools/godot_path.sh; find_godot') $GODOT --headless --path . --script res://tests/test_voice_parser.gd
+```
+See [VOICE_CONTROL.md](VOICE_CONTROL.md#-developer-guide) for details.
 
 ```gdscript
 const VOICE_PHRASES := {

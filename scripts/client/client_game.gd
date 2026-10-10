@@ -104,6 +104,7 @@ func _ready() -> void:
 	add_child(voice)
 	voice.command_spoken.connect(_on_voice_command)
 	voice.status_changed.connect(func(s): print("[Voice] ", s))
+	voice.spell_resolver = _voice_spell
 	sfx = Sfx.new()
 	add_child(sfx)
 	_build_world()
@@ -752,7 +753,7 @@ func _build_pause_menu() -> void:
 	controls_title.add_theme_font_size_override("font_size", 20)
 	controls.add_child(controls_title)
 	var help := Label.new()
-	help.text = "1–4 / Numpad: select soldier\nTab: next living soldier\nLeft click: move / select\nRight click: face direction\nW/E/R: equipped abilities\nVoice: fog, scan, rush, outrage, flash, break magic, fireball, invisible\nV: voice toggle\nEscape: close menu"
+	help.text = "1–4 / Numpad: select soldier\nTab: next living soldier\nLeft click: move / select\nRight click: face direction\nW/E/R: equipped abilities\nVoice: fog, scan, rush, outrage, flash, break magic, fireball, invisible\nVoice: \"spell one / two / three\" casts the W / E / R slot\nV: voice toggle\nEscape: close menu"
 	help.add_theme_color_override("font_color", Color(0.9, 0.96, 1.0))
 	controls.add_child(help)
 
@@ -1308,6 +1309,12 @@ func _use_ability_at(ability: int, target: Vector2, via_voice: bool) -> bool:
 		return false
 	Net.c_ability.rpc_id(1, ability, target, via_voice)
 	return true
+
+
+## Ability in the W / E / R slot of the named soldier (or the selected one).
+func _voice_spell(subj: int, slot_idx: int) -> int:
+	var equipped := equipped_abilities(subj if subj >= 0 else selected)
+	return equipped[slot_idx] if slot_idx >= 0 and slot_idx < equipped.size() else -1
 
 
 func _soldier_name(idx: int) -> String:

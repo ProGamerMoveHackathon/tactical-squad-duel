@@ -58,6 +58,7 @@ func _fit(text: String, fs: int, max_w: float, keep_end := false) -> String:
 const VOICE_HINTS := [
 	"\"bravo go to kitchen\"", "\"squad watch right\"", "\"fireball mid\"",
 	"\"alpha fall back a bit\"", "\"charlie push enemy tables\"", "\"go up\"", "\"stop\"",
+	"\"spell two\"", "\"bravo cast E mid\"",
 ]
 
 

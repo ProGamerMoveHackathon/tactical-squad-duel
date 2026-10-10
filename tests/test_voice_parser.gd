@@ -68,6 +68,11 @@ func _init() -> void:
 		["fireball mid", T.ABILITY, -2, Cfg.Ability.FIREBALL],
 		["charlie fireball the buffet", T.ABILITY, 2, Cfg.Ability.FIREBALL],
 		["invisible", T.ABILITY, -2, Cfg.Ability.INVISIBLE],
+		["smoke", T.ABILITY, -2, Cfg.Ability.FOG],
+		["f*** magic", T.ABILITY, -2, Cfg.Ability.BREAK_MAGIC],
+		["bravo fuck magic", T.ABILITY, 1, Cfg.Ability.BREAK_MAGIC],
+		["cast fireball to the kitchen", T.ABILITY, -2, Cfg.Ability.FIREBALL],
+		["use scan", T.ABILITY, -2, Cfg.Ability.SCAN],
 		# Selection
 		["alpha", T.SELECT, 0, null],
 		["bravo", T.SELECT, 1, null],
@@ -128,6 +133,61 @@ func _init() -> void:
 	else:
 		failed += 1
 		print("  [FAIL] chained orders: ", chain, " / ", chain2)
+
+	# Spell slots: [input, slot, subject, target]. The ability is resolved later from the loadout.
+	var spell_cases := [
+		["spell one", 0, -2, ""],
+		["spell two", 1, -2, ""],
+		["spell 2", 1, -2, ""],
+		["spell to", 1, -2, ""],
+		["spell three", 2, -2, ""],
+		["first spell", 0, -2, ""],
+		["second ability", 1, -2, ""],
+		["cast w", 0, -2, ""],
+		["cast E", 1, -2, ""],
+		["cast r", 2, -2, ""],
+		["charlie spell three", 2, 2, ""],
+		["bravo second spell mid", 1, 1, "mid"],
+		["two spell one", 0, 1, ""],
+		["squad use skill three", 2, -1, ""],
+		["spell two at the enemy kitchen", 1, -2, "enemy_kitchen"],
+	]
+	for c in spell_cases:
+		var res: Dictionary = Voice.parse_voice(c[0])
+		if res.get("type") == T.ABILITY and res.get("ability") == -1 and res.get("slot") == c[1] \
+				and res.get("subject") == c[2] and res.get("target") == c[3]:
+			passed += 1
+			print("  [PASS] %-32s -> %s" % [c[0], Voice.format_action_tag(res)])
+		else:
+			failed += 1
+			print("  [FAIL] %-32s -> expected slot %d subj %d target '%s', got %s" % [c[0], c[1], c[2], c[3], res])
+	var spell_chain: Array = Voice.parse_utterance("alpha go to mid and spell two")
+	if spell_chain.size() == 2 and spell_chain[1]["type"] == T.ABILITY and spell_chain[1]["slot"] == 1 \
+			and spell_chain[1]["subject"] == 0 and Voice.parse_voice("first").get("type") == T.SELECT:
+		passed += 1
+		print("  [PASS] spell slots chain and keep plain ordinals")
+	else:
+		failed += 1
+		print("  [FAIL] spell slots chain and keep plain ordinals: ", spell_chain)
+
+	# The Voice node resolves a slot against the loadout before emitting the order.
+	var voice = Voice.new()
+	var spoken := []
+	voice.spell_resolver = func(subj: int, slot_idx: int) -> int:
+		return [Cfg.Ability.FOG, Cfg.Ability.SCAN, Cfg.Ability.FIREBALL][slot_idx] if subj == 2 else -1
+	voice.command_spoken.connect(func(cmd): spoken.append(cmd))
+	voice.inject("charlie spell three mid")
+	voice.inject("alpha spell one")
+	voice._evaluate_results()
+	if spoken.size() == 1 and spoken[0]["ability"] == Cfg.Ability.FIREBALL and spoken[0]["target"] == "mid" \
+			and voice.history[0]["tags"] == ["CHARLIE FIREBALL > MID"] and voice.history.size() == 2 \
+			and voice.history[1]["tags"].is_empty():
+		passed += 1
+		print("  [PASS] spell slot resolved from loadout")
+	else:
+		failed += 1
+		print("  [FAIL] spell slot resolved from loadout: ", spoken, " / ", voice.history)
+	voice.free()
 
 	# Fireball without a target waits for the final result; with a target it can fire early.
 	var timing_ok: bool = not Voice.is_complete(Voice.parse_voice("fireball")) \

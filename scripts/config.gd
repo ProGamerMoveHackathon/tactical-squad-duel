@@ -61,15 +61,25 @@ const ABILITY_SLOT_KEYS := ["W", "E", "R"]
 ## Spoken phrases that trigger each ability (lower-case, matched as whole words /
 ## word sequences). Includes a few common speech-recognition mishearings.
 const VOICE_PHRASES := {
-	Ability.FOG: ["fog", "fog magic", "cast fog", "summon fog", "mist", "cast mist"],
-	Ability.SCAN: ["scan", "scans", "scanning", "scanner", "radar", "ping", "sonar", "pulse"],
+	Ability.FOG: ["fog", "fog magic", "cast fog", "summon fog", "mist", "cast mist", "smoke", "frog", "fogg"],
+	Ability.SCAN: ["scan", "scans", "scanning", "scanner", "radar", "ping", "sonar", "pulse", "scam"],
 	Ability.RUSH: ["rush", "rushing", "russia", "brush", "sprint", "dash", "boost", "go go"],
-	Ability.OUTRAGE: ["outrage", "rage", "enrage", "fury"],
-	Ability.FLASH: ["flash", "blink", "flash forward"],
-	Ability.BREAK_MAGIC: ["break magic", "stick mode", "wand mode", "switch weapon"],
-	Ability.FIREBALL: ["fireball", "fire ball", "cast fireball"],
-	Ability.INVISIBLE: ["invisible", "invisibility", "vanish", "cloak"],
+	Ability.OUTRAGE: ["outrage", "rage", "enrage", "fury", "berserk"],
+	Ability.FLASH: ["flash", "blink", "flash forward", "flesh", "teleport"],
+	# Chrome's profanity filter delivers "f***", which normalizes to "f".
+	Ability.BREAK_MAGIC: ["break magic", "f magic", "fuck magic", "fucking magic", "freaking magic", "frick magic",
+		"stick mode", "wand mode", "switch weapon"],
+	Ability.FIREBALL: ["fireball", "fire ball", "fireballs", "fire bowl", "cast fireball"],
+	Ability.INVISIBLE: ["invisible", "invisibility", "vanish", "cloak", "stealth"],
 }
+## Equipped spell slots in W / E / R order: noun + number / key ("spell two",
+## "cast E") or ordinal before or after the noun ("second spell", "spell third").
+const VOICE_SPELL_NOUNS := ["spell", "ability", "skill", "slot", "cast", "use"]
+const VOICE_SPELL_SLOTS := [
+	{"ordinal": ["first"], "number": ["one", "1", "won", "w", "double u", "double you"]},
+	{"ordinal": ["second"], "number": ["two", "2", "to", "too", "e"]},
+	{"ordinal": ["third"], "number": ["three", "3", "tree", "r"]},
+]
 
 # --- Voice command vocabulary ------------------------------------------------
 # Grammar: [who] [action] [where]. Every list is matched on whole words and the

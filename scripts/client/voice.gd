@@ -224,6 +224,9 @@ var interim_text := ""
 ## An entry without tags was heard but not understood.
 var history := []
 var last_action := ""
+## func(subject: int, slot: int) -> ability id or -1. Turns "spell two" into the
+## ability equipped in that slot; set by the game, which knows the loadouts.
+var spell_resolver := Callable()
 
 var _results := {}  # result key -> {alts, final, changed, done, sigs}
 var _clock := 0.0
@@ -349,6 +352,10 @@ func _evaluate_results() -> void:
 func _act(key: String, r: Dictionary) -> void:
 	var cmds := best_parse(r["alts"])
 	for cmd in cmds:
+		if cmd.get("type") == CmdType.ABILITY and cmd["ability"] < 0:
+			cmd["ability"] = spell_resolver.call(cmd["subject"], cmd["slot"]) if spell_resolver.is_valid() else -1
+			if cmd["ability"] < 0:
+				continue
 		if not r["final"] and not is_complete(cmd):
 			continue
 		var sig := command_signature(cmd)
@@ -419,7 +426,8 @@ static func format_action_tag(cmd: Dictionary) -> String:
 		CmdType.HALT:
 			return pre + "STOP"
 		CmdType.ABILITY:
-			var tag: String = pre + str(Cfg.ABILITIES[cmd["ability"]]["name"]).to_upper()
+			var tag: String = pre + (str(Cfg.ABILITIES[cmd["ability"]]["name"]).to_upper() if cmd["ability"] >= 0 \
+				else "SPELL " + Cfg.ABILITY_SLOT_KEYS[cmd["slot"]])
 			if cmd.get("target", "") != "":
 				tag += " > " + MapData.callout_label(cmd["target"])
 			elif cmd.get("dir", Vector2.ZERO) != Vector2.ZERO:
@@ -462,7 +470,17 @@ static func _phrases(name: String) -> Array:
 						twin.append(p + " " + w)
 				callouts["enemy_" + id] = twin
 		callouts["enemy_base"] = callouts["enemy_base"] + Cfg.VOICE_ENEMY_BASE_WORDS
+		var spell_slots := {}
+		for k in Cfg.VOICE_SPELL_SLOTS.size():
+			var words: Dictionary = Cfg.VOICE_SPELL_SLOTS[k]
+			spell_slots[k] = []
+			for noun in Cfg.VOICE_SPELL_NOUNS:
+				for w in words["number"] + words["ordinal"]:
+					spell_slots[k].append(noun + " " + w)
+				for w in words["ordinal"]:
+					spell_slots[k].append(w + " " + noun)
 		_vocab = {
+			"spell_slots": _sorted(spell_slots),
 			"subjects": _sorted(Cfg.VOICE_SUBJECTS),
 			"numbers": _sorted(Cfg.VOICE_SUBJECT_NUMBERS),
 			"callouts": _sorted(callouts),
@@ -579,6 +597,14 @@ static func _parse_segment(text: String, inherited: int) -> Dictionary:
 	var subject := inherited
 	var named := false
 
+	# Before the soldier numbers: "first spell" must not select Alpha.
+	var spell_slot := -1
+	if _find(text, "abilities").is_empty():
+		var spell := _find(text, "spell_slots")
+		if not spell.is_empty():
+			spell_slot = spell[0]
+			text = _cut(text, spell)
+
 	# A number names a soldier only at the start ("two go left", "select three").
 	var words := text.split(" ", false)
 	var lead := 0
@@ -615,10 +641,13 @@ static func _parse_segment(text: String, inherited: int) -> Dictionary:
 		return {"type": CmdType.HALT, "subject": subject}
 
 	hit = _find(text, "abilities")
-	if not hit.is_empty():
-		text = _cut(text, hit)
+	if not hit.is_empty() or spell_slot >= 0:
+		if not hit.is_empty():
+			text = _cut(text, hit)
 		var callout := _find(text, "callouts")
-		return {"type": CmdType.ABILITY, "ability": hit[0], "subject": subject,
+		# A spell slot ("ability": -1) is resolved against the loadout by the Voice node.
+		return {"type": CmdType.ABILITY, "ability": hit[0] if not hit.is_empty() else -1,
+			"slot": spell_slot, "subject": subject,
 			"target": callout[0] if not callout.is_empty() else "",
 			"dir": _direction(text) if callout.is_empty() else Vector2.ZERO}
 
