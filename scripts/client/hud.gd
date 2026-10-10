@@ -285,7 +285,7 @@ func _draw_ability_tooltip(ability: int, mouse_pos: Vector2, viewport_width: flo
 	var box_height := 38.0 + lines.size() * 13.0
 	var x := clampf(mouse_pos.x - box_width * 0.5, 8.0, viewport_width - box_width - 8.0)
 	var y := bar_top - box_height - 7.0
-	draw_rect(Rect2(x, y, box_width, box_height), Color(0.015, 0.025, 0.045, 0.97))
+	draw_rect(Rect2(x, y, box_width, box_height), Color(0.015, 0.025, 0.045, 1))
 	draw_rect(Rect2(x, y, box_width, box_height), Color(0.28, 0.76, 0.96, 0.95), false, 2.0)
 	_text(Vector2(x + 10, y + 17), "%s  ·  %d MP  ·  %.1fs cooldown" % [def["name"], int(def["mp_cost"]), float(def["cooldown"])], 11, Color(1.0, 0.84, 0.34))
 	for line_idx in lines.size():

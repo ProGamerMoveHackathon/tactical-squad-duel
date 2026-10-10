@@ -37,30 +37,30 @@ const JS_SETUP := """
       rec.continuous = true;
       rec.interimResults = true;
       rec.maxAlternatives = 3;
-      rec.lang = 'en-US';
+	  rec.lang = 'en-US';
 
       rec.onstart = function () {
         v.active = true;
         v.session++;
-        v.status = 'listening';
+		v.status = 'listening';
       };
 
       rec.onerror = function (e) {
-        // Benign events: silence timeout ('no-speech') or user cancellation ('aborted')
-        if (e.error === 'no-speech' || e.error === 'aborted') {
+		// Benign events: silence timeout ('no-speech') or user cancellation ('aborted')
+		if (e.error === 'no-speech' || e.error === 'aborted') {
           return;
         }
         // Fatal or system errors: stop retrying loop immediately!
         want = false;
         v.active = false;
-        if (e.error === 'not-allowed') {
-          v.status = 'mic blocked (allow in browser)';
-        } else if (e.error === 'audio-capture') {
-          v.status = 'no microphone found';
-        } else if (e.error === 'network') {
-          v.status = 'offline / speech service error';
+		if (e.error === 'not-allowed') {
+		  v.status = 'mic blocked (allow in browser)';
+		} else if (e.error === 'audio-capture') {
+		  v.status = 'no microphone found';
+		} else if (e.error === 'network') {
+		  v.status = 'offline / speech service error';
         } else {
-          v.status = 'error: ' + e.error;
+		  v.status = 'error: ' + e.error;
         }
       };
 
@@ -74,13 +74,13 @@ const JS_SETUP := """
                 rec.start();
               } catch (err) {
                 want = false;
-                v.status = 'off (press V)';
+				v.status = 'off (press V)';
               }
             }
           }, 400);
         } else {
-          if (!v.status.startsWith('error') && !v.status.startsWith('mic blocked') && !v.status.startsWith('no microphone') && !v.status.startsWith('offline')) {
-            v.status = 'off (press V)';
+		  if (!v.status.startsWith('error') && !v.status.startsWith('mic blocked') && !v.status.startsWith('no microphone') && !v.status.startsWith('offline')) {
+			v.status = 'off (press V)';
           }
         }
       };
@@ -89,11 +89,11 @@ const JS_SETUP := """
         for (var i = ev.resultIndex; i < ev.results.length; i++) {
           var r = ev.results[i], alts = [];
           for (var j = 0; j < r.length; j++) alts.push(r[j].transcript);
-          v.queue.push({ key: v.session + ':' + i, text: alts.join(' | '), final: r.isFinal });
+		  v.queue.push({ key: v.session + ':' + i, text: alts.join(' | '), final: r.isFinal });
         }
       };
     } catch (e) {
-      v.status = 'unsupported';
+	  v.status = 'unsupported';
       v.supported = false;
     }
   }
@@ -103,20 +103,20 @@ const JS_SETUP := """
     if (v.active) return;
     want = true;
     if (!rec) make();
-    v.status = 'listening';
+	v.status = 'listening';
     try {
       rec.start();
     } catch (err) {
       want = false;
       v.active = false;
-      v.status = 'off (press V)';
+	  v.status = 'off (press V)';
     }
   };
 
   v.stop = function () {
     want = false;
     v.active = false;
-    v.status = 'off (press V)';
+	v.status = 'off (press V)';
     if (rec) {
       try { rec.abort(); } catch (err) {}
     }
