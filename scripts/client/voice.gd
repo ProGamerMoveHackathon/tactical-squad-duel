@@ -1,14 +1,17 @@
 extends Node
 ## Voice commands through the browser's Web Speech API (Chrome / Edge / Safari),
-## bridged into Godot with JavaScriptBridge. Recognised phrases are parsed using
-## a tactical squad grammar ([Who] [Action] [Where/Target]) allowing 100% hands-free
-## gameplay.
+## bridged into Godot with JavaScriptBridge. Recognised phrases are parsed with a
+## tactical grammar ([who] [action] [where]) so the game is playable hands-free.
+##
+## Speech arrives as "results" that grow while the player talks (interim) and
+## are eventually finalised. Interim text is acted on once it has been stable
+## for INTERIM_STABLE_S, so short orders feel instant; finals always run. Each
+## command fires at most once per result.
 
 const Cfg = preload("res://scripts/config.gd")
+const MapData = preload("res://scripts/map_data.gd")
 
 signal command_spoken(cmd: Dictionary)
-signal ability_spoken(ability: int, heard: String)
-signal select_spoken(idx: int, heard: String)
 signal status_changed(status: String)
 
 enum CmdType {
@@ -21,8 +24,14 @@ enum CmdType {
 	HALT,
 	ABILITY,
 	DEPLOY,
-	REMATCH
+	REMATCH,
+	SELECT_NEXT,
 }
+
+const INTERIM_STABLE_S := 0.4
+const HISTORY_SIZE := 4
+const HISTORY_TTL := 9.0
+const SUBJECT_NAMES := {-1: "SQUAD", 0: "ALPHA", 1: "BRAVO", 2: "CHARLIE"}
 
 const JS_SETUP := """
 (function () {
@@ -31,25 +40,30 @@ const JS_SETUP := """
   var v = window.tsdVoice = {
     supported: !!SR,
     active: false,
+    speaking: false,
     queue: [],
-    status: SR ? 'off (press V)' : 'unsupported',
-    session: 0,
-    interim: '',
-    lastHeard: ''
+    status: SR ? 'off' : 'unsupported',
+    session: 0
   };
   var rec = null, want = false, restartTimer = null;
+  var FATAL = { 'not-allowed': 'mic blocked', 'service-not-allowed': 'mic blocked',
+                'audio-capture': 'no microphone', 'network': 'speech service offline' };
 
   function stopRec() {
-    if (rec) {
-      try {
-        rec.onstart = null;
-        rec.onerror = null;
-        rec.onend = null;
-        rec.onresult = null;
-        rec.abort();
-      } catch (e) {}
-      rec = null;
-    }
+    if (!rec) return;
+    try {
+      rec.onstart = rec.onerror = rec.onend = rec.onresult = null;
+      rec.onspeechstart = rec.onspeechend = null;
+      rec.abort();
+    } catch (e) {}
+    rec = null;
+  }
+
+  function scheduleRestart(ms) {
+    if (restartTimer) clearTimeout(restartTimer);
+    restartTimer = setTimeout(function () {
+      if (want && !v.active) createAndStart();
+    }, ms);
   }
 
   function createAndStart() {
@@ -61,74 +75,30 @@ const JS_SETUP := """
       rec.interimResults = true;
       rec.maxAlternatives = 3;
       rec.lang = 'en-US';
-
-      rec.onstart = function () {
-        v.active = true;
-        v.session++;
-        v.status = 'listening';
-      };
-
+      rec.onstart = function () { v.active = true; v.session++; v.status = 'listening'; };
+      rec.onspeechstart = function () { v.speaking = true; };
+      rec.onspeechend = function () { v.speaking = false; };
       rec.onerror = function (e) {
-        if (e.error === 'no-speech' || e.error === 'aborted') {
-          return;
-        }
-        if (e.error === 'not-allowed') {
-          want = false;
-          v.active = false;
-          v.status = 'mic blocked (allow in browser)';
-        } else if (e.error === 'audio-capture') {
-          want = false;
-          v.active = false;
-          v.status = 'no microphone found';
-        } else if (e.error === 'network') {
-          want = false;
-          v.active = false;
-          v.status = 'offline / speech service error';
-        } else {
-          v.status = 'error: ' + e.error;
-        }
+        if (e.error === 'no-speech' || e.error === 'aborted') return;
+        if (FATAL[e.error]) { want = false; v.status = FATAL[e.error]; }
+        else v.status = 'error: ' + e.error;
       };
-
       rec.onend = function () {
         v.active = false;
-        if (want) {
-          // Chrome pauses on silence; immediately restart with fresh SR instance!
-          if (restartTimer) clearTimeout(restartTimer);
-          restartTimer = setTimeout(function () {
-            if (want && !v.active) {
-              createAndStart();
-            }
-          }, 200);
-        } else {
-          if (!v.status.startsWith('error') && !v.status.startsWith('mic blocked') && !v.status.startsWith('no microphone')) {
-            v.status = 'off (press V)';
-          }
-        }
+        v.speaking = false;
+        // Chrome ends sessions on silence / after ~60s: restart while wanted.
+        if (want) scheduleRestart(150);
       };
-
       rec.onresult = function (ev) {
         for (var i = ev.resultIndex; i < ev.results.length; i++) {
           var r = ev.results[i], alts = [];
           for (var j = 0; j < r.length; j++) alts.push(r[j].transcript);
-          var textStr = alts.join(' | ');
-          if (r.isFinal) {
-            v.lastHeard = alts[0].trim();
-            v.interim = '';
-          } else {
-            v.interim = alts[0].trim();
-          }
-          v.queue.push({ key: v.session + ':' + i, text: textStr, final: r.isFinal });
+          v.queue.push({ key: v.session + ':' + i, alts: alts, final: r.isFinal });
         }
       };
-
       rec.start();
     } catch (e) {
-      if (want) {
-        if (restartTimer) clearTimeout(restartTimer);
-        restartTimer = setTimeout(function () {
-          if (want && !v.active) createAndStart();
-        }, 500);
-      }
+      if (want) scheduleRestart(500);
     }
   }
 
@@ -142,49 +112,47 @@ const JS_SETUP := """
   v.stop = function () {
     want = false;
     v.active = false;
-    v.status = 'off (press V)';
-    v.interim = '';
+    v.speaking = false;
+    v.status = 'off';
     if (restartTimer) clearTimeout(restartTimer);
     stopRec();
   };
 
   v.poll = function () {
     var q = v.queue; v.queue = [];
-    return JSON.stringify({
-      q: q,
-      status: v.status,
-      supported: v.supported,
-      active: v.active,
-      interim: v.interim || '',
-      lastHeard: v.lastHeard || ''
-    });
+    return JSON.stringify({ q: q, status: v.status, speaking: v.speaking });
   };
 })();
 """
 
 var available := false
 var enabled := false
+var speaking := false
 var status := "unavailable"
-var last_heard := ""
-var last_heard_timer := 0.0
-var last_action := ""
+## Words currently being spoken (not final yet).
 var interim_text := ""
-var _fired := {}  # result key -> Array of fired command ids
+## Recent utterances, oldest first: {key, text, tags: Array[String], age}.
+## An entry without tags was heard but not understood.
+var history := []
+var last_action := ""
+
+var _results := {}  # result key -> {alts, final, changed, done, sigs}
+var _clock := 0.0
 var _poll_t := 0.0
+var _typed := 0
 
 
 func _ready() -> void:
 	available = OS.has_feature("web")
-	if available:
-		JavaScriptBridge.eval(JS_SETUP, true)
-		var supported = JavaScriptBridge.eval("window.tsdVoice.supported", true)
-		if not supported:
-			available = false
-			status = "not supported by this browser (use keys)"
-		else:
-			status = "off (press V)"
+	if not available:
+		status = "web only"
+		return
+	JavaScriptBridge.eval(JS_SETUP, true)
+	if not JavaScriptBridge.eval("window.tsdVoice.supported", true):
+		available = false
+		status = "unsupported browser"
 	else:
-		status = "web only (use keys)"
+		status = "off"
 
 
 func start() -> void:
@@ -192,18 +160,17 @@ func start() -> void:
 		return
 	enabled = true
 	JavaScriptBridge.eval("window.tsdVoice.start()", true)
-	status = "listening"
-	status_changed.emit(status)
+	_set_status("listening")
 
 
 func stop() -> void:
 	if not available or not enabled:
 		return
 	enabled = false
+	speaking = false
 	interim_text = ""
 	JavaScriptBridge.eval("window.tsdVoice.stop()", true)
-	status = "off (press V)"
-	status_changed.emit(status)
+	_set_status("off")
 
 
 func toggle() -> void:
@@ -213,193 +180,380 @@ func toggle() -> void:
 		start()
 
 
-func _process(delta: float) -> void:
-	if last_heard_timer > 0.0:
-		last_heard_timer = maxf(0.0, last_heard_timer - delta)
+## Feed text as if it had been spoken (debug hooks / typed commands).
+func inject(text: String) -> void:
+	_typed += 1
+	_on_result("typed:%d" % _typed, [text], true)
 
-	if not available:
-		return
-	_poll_t -= delta
-	if _poll_t > 0.0:
-		return
-	_poll_t = 0.06
+
+func _set_status(s: String) -> void:
+	if s != status:
+		status = s
+		status_changed.emit(status)
+
+
+func _process(delta: float) -> void:
+	_clock += delta
+	for h in history:
+		h["age"] += delta
+	while not history.is_empty() and history[0]["age"] > HISTORY_TTL:
+		history.pop_front()
+	if available:
+		_poll_t -= delta
+		if _poll_t <= 0.0:
+			_poll_t = 0.05
+			_poll()
+	_evaluate_results()
+
+
+func _poll() -> void:
 	var raw = JavaScriptBridge.eval("window.tsdVoice.poll()", true)
 	if typeof(raw) != TYPE_STRING:
 		return
 	var data = JSON.parse_string(raw)
 	if typeof(data) != TYPE_DICTIONARY:
 		return
-	var new_status: String = str(data.get("status", status))
-	var is_active: bool = bool(data.get("active", false))
-	if new_status.begins_with("error") or new_status.begins_with("mic blocked") or new_status.begins_with("no microphone") or new_status.begins_with("offline"):
+	speaking = bool(data.get("speaking", false))
+	var new_status := str(data.get("status", status))
+	if new_status != "listening" and new_status != "off":
 		enabled = false
-	elif is_active or new_status == "listening":
-		enabled = true
-
-	var cur_interim: String = str(data.get("interim", "")).strip_edges()
-	interim_text = cur_interim
-
-	var cur_last: String = str(data.get("lastHeard", "")).strip_edges()
-	if cur_last != "" and cur_last != last_heard:
-		last_heard = cur_last
-		last_heard_timer = 5.0
-
-	if new_status != status:
-		status = new_status
-		status_changed.emit(status)
+	_set_status(new_status)
 	for item in data.get("q", []):
-		_handle_result(str(item.get("key", "")), str(item.get("text", "")), bool(item.get("final", false)))
+		_on_result(str(item.get("key", "")), item.get("alts", []), bool(item.get("final", false)))
 
 
-func _handle_result(key: String, text: String, is_final: bool) -> void:
-	var lower := text.to_lower()
-	var best := lower.split(" | ")[0].strip_edges()
-	if best != "":
-		last_heard = best
-		last_heard_timer = 5.0
-		if is_final:
-			interim_text = ""
-	var fired: Array = _fired.get(key, [])
+func _on_result(key: String, alts: Array, is_final: bool) -> void:
+	var clean := PackedStringArray()
+	for a in alts:
+		var s := str(a).strip_edges()
+		if s != "":
+			clean.append(s)
+	var r: Dictionary = _results.get(key, {"alts": PackedStringArray(), "final": false, "changed": _clock, "done": "", "sigs": []})
+	if clean != r["alts"]:
+		r["alts"] = clean
+		r["changed"] = _clock
+	r["final"] = is_final
+	_results[key] = r
 
-	for alt in text.split(" | "):
-		var cmd := parse_voice(alt)
-		if cmd["type"] != CmdType.NONE:
-			var cmd_key := "%d:%s:%s" % [cmd["type"], str(cmd.get("subject", "")), str(cmd.get("param", cmd.get("ability", "")))]
-			if cmd_key in fired:
-				continue
-			fired.append(cmd_key)
-			_fired[key] = fired
-			last_action = format_action_tag(cmd)
-			last_heard_timer = 5.0
-			interim_text = ""
-			command_spoken.emit(cmd)
-			if cmd["type"] == CmdType.SELECT and cmd.get("subject", -1) >= 0:
-				select_spoken.emit(cmd["subject"], best)
-			elif cmd["type"] == CmdType.ABILITY:
-				ability_spoken.emit(cmd["ability"], best)
-			break
 
-	if is_final and _fired.size() > 64:
-		_fired.clear()
+func _evaluate_results() -> void:
+	var live := ""
+	var live_t := -1.0
+	for key in _results.keys():
+		var r: Dictionary = _results[key]
+		var text: String = r["alts"][0] if not r["alts"].is_empty() else ""
+		var stable: bool = r["final"] or _clock - r["changed"] >= INTERIM_STABLE_S
+		var state_id := "%s|%s" % [text, r["final"]]
+		if stable and r["done"] != state_id:
+			r["done"] = state_id
+			_act(key, r)
+		if r["final"]:
+			if text != "":
+				_history_entry(key, text)["age"] = 0.0
+			_results.erase(key)
+		elif r["changed"] > live_t:
+			live = text
+			live_t = r["changed"]
+	interim_text = live
+
+
+func _act(key: String, r: Dictionary) -> void:
+	var cmds := best_parse(r["alts"])
+	for cmd in cmds:
+		if not r["final"] and not is_complete(cmd):
+			continue
+		var sig := command_signature(cmd)
+		if sig in r["sigs"]:
+			continue
+		r["sigs"].append(sig)
+		last_action = format_action_tag(cmd)
+		_history_entry(key, r["alts"][0])["tags"].append(last_action)
+		command_spoken.emit(cmd)
+
+
+func _history_entry(key: String, text: String) -> Dictionary:
+	for h in history:
+		if h["key"] == key:
+			h["text"] = text
+			return h
+	var entry := {"key": key, "text": text, "tags": [], "age": 0.0}
+	history.append(entry)
+	while history.size() > HISTORY_SIZE:
+		history.pop_front()
+	return entry
+
+
+# --------------------------------------------------------------------------
+# Command helpers
+# --------------------------------------------------------------------------
+
+## Commands that are safe to run from interim text. A smoke without a target
+## waits for the final result, because "smoke ... kitchen" is still coming.
+static func is_complete(cmd: Dictionary) -> bool:
+	if cmd.get("type") == CmdType.ABILITY and cmd.get("ability") == Cfg.Ability.SMOKE:
+		return cmd.get("target", "") != "" or cmd.get("dir", Vector2.ZERO) != Vector2.ZERO
+	return true
+
+
+static func command_signature(cmd: Dictionary) -> String:
+	if cmd.get("type") == CmdType.ABILITY:
+		return "ability:%d" % cmd["ability"]  # cooldowns are per team: once per utterance
+	return "%d:%d:%s:%s" % [cmd.get("type", 0), cmd.get("subject", -2), str(cmd.get("param", "")), str(cmd.get("dist", ""))]
+
+
+static func direction_label(dir: Vector2) -> String:
+	var parts := []
+	if dir.y < -0.1: parts.append("UP")
+	if dir.y > 0.1: parts.append("DOWN")
+	if dir.x > 0.1: parts.append("RIGHT")
+	if dir.x < -0.1: parts.append("LEFT")
+	return "-".join(parts)
 
 
 static func format_action_tag(cmd: Dictionary) -> String:
-	var subj_str := ""
-	var subj: int = cmd.get("subject", -2)
-	match subj:
-		-1: subj_str = "SQUAD "
-		0: subj_str = "ALPHA "
-		1: subj_str = "BRAVO "
-		2: subj_str = "CHARLIE "
-		_: subj_str = ""
-
+	var who: String = SUBJECT_NAMES.get(cmd.get("subject", -2), "")
+	var pre := who + " " if who != "" else ""
 	match cmd.get("type", CmdType.NONE):
 		CmdType.SELECT:
-			return subj_str + "SELECT"
+			return "SELECT " + who
+		CmdType.SELECT_NEXT:
+			return "NEXT SOLDIER"
 		CmdType.MOVE_CALLOUT:
-			return subj_str + "→ " + str(cmd.get("param", "")).to_upper()
+			return pre + "MOVE > " + MapData.callout_label(cmd["param"])
 		CmdType.MOVE_DIR:
-			return subj_str + "STEP " + str(cmd.get("param", "")).to_upper()
+			var extra: String = {"short": " (BIT)", "far": " (FAR)"}.get(cmd.get("dist", ""), "")
+			return pre + "MOVE " + str(cmd["param"]) + extra
 		CmdType.WATCH_DIR:
-			return subj_str + "WATCH " + str(cmd.get("param", "")).to_upper()
+			return pre + "WATCH " + str(cmd["param"])
+		CmdType.WATCH_CALLOUT:
+			return pre + "WATCH " + MapData.callout_label(cmd["param"])
 		CmdType.HALT:
-			return subj_str + "HALT"
+			return pre + "STOP"
 		CmdType.ABILITY:
-			var ab: int = cmd.get("ability", 0)
-			return Cfg.ABILITIES[ab]["name"].to_upper()
+			var tag: String = pre + str(Cfg.ABILITIES[cmd["ability"]]["name"]).to_upper()
+			if cmd.get("target", "") != "":
+				tag += " > " + MapData.callout_label(cmd["target"])
+			elif cmd.get("dir", Vector2.ZERO) != Vector2.ZERO:
+				tag += " " + direction_label(cmd["dir"])
+			return tag
 		CmdType.DEPLOY:
 			return "DEPLOY"
 		CmdType.REMATCH:
 			return "REMATCH"
-	return "OK"
+	return ""
 
 
-## Static natural grammar parser for testing and runtime.
-static func parse_voice(raw: String) -> Dictionary:
-	var cleaned := " "
-	var lower := raw.to_lower()
-	for c in lower:
-		if (c >= "a" and c <= "z") or (c >= "0" and c <= "9"):
-			cleaned += c
-		else:
-			cleaned += " "
-	cleaned = " " + " ".join(cleaned.split(" ", false)) + " "
+# --------------------------------------------------------------------------
+# Grammar
+# --------------------------------------------------------------------------
 
-	# 1. Meta match commands
-	for w in Cfg.VOICE_ACTIONS["deploy"]:
-		if cleaned.find(" " + w + " ") != -1:
-			return {"type": CmdType.DEPLOY, "text": raw}
-	for w in Cfg.VOICE_ACTIONS["rematch"]:
-		if cleaned.find(" " + w + " ") != -1:
-			return {"type": CmdType.REMATCH, "text": raw}
+static var _vocab := {}
 
-	# 2. Extract Subject (Alpha, Bravo, Charlie, Squad, or default -2)
+
+## [[phrase, id], ...] with the longest phrase first.
+static func _sorted(map: Dictionary) -> Array:
+	var out := []
+	for id in map:
+		for w in map[id]:
+			out.append([str(w), id])
+	out.sort_custom(func(a, b): return a[0].length() > b[0].length())
+	return out
+
+
+static func _phrases(name: String) -> Array:
+	if _vocab.is_empty():
+		var callouts := {}
+		for id in Cfg.CALLOUTS:
+			var words: Array = Cfg.CALLOUTS[id]["words"]
+			callouts[id] = words
+			if Cfg.CALLOUTS[id]["mirror"]:
+				var twin := []
+				for p in Cfg.VOICE_ENEMY_PREFIXES:
+					for w in words:
+						twin.append(p + " " + w)
+				callouts["enemy_" + id] = twin
+		callouts["enemy_base"] = callouts["enemy_base"] + Cfg.VOICE_ENEMY_BASE_WORDS
+		_vocab = {
+			"subjects": _sorted(Cfg.VOICE_SUBJECTS),
+			"numbers": _sorted(Cfg.VOICE_SUBJECT_NUMBERS),
+			"callouts": _sorted(callouts),
+			"directions": _sorted(Cfg.VOICE_DIRECTIONS),
+			"abilities": _sorted(Cfg.VOICE_PHRASES),
+		}
+		for key in Cfg.VOICE_ACTIONS:
+			_vocab[key] = _sorted({key: Cfg.VOICE_ACTIONS[key]})
+	return _vocab[name]
+
+
+## Longest vocabulary phrase found in `text` -> [id, index, phrase], or [].
+static func _find(text: String, vocab_name: String) -> Array:
+	for entry in _phrases(vocab_name):
+		var idx := text.find(" " + entry[0] + " ")
+		if idx != -1:
+			return [entry[1], idx, entry[0]]
+	return []
+
+
+static func _cut(text: String, hit: Array) -> String:
+	return text.substr(0, hit[1]) + text.substr(hit[1] + hit[2].length() + 1)
+
+
+## Lower-case, letters/digits only, padded with spaces: " alpha go to kitchen ".
+static func normalize(raw: String) -> String:
+	var out := ""
+	for c in raw.to_lower():
+		out += c if (c >= "a" and c <= "z") or (c >= "0" and c <= "9") else " "
+	var words := out.split(" ", false)
+	for i in range(1, words.size()):
+		if words[i] in ["two", "2", "too"] and not words[i - 1] in ["select", "to", "unit", "soldier", "number"]:
+			words[i] = "to"
+	var text := " " + " ".join(words) + " "
+	return text.replace(" all right ", " alright ")
+
+
+## Sum of all direction words in `text`, snapped to the 8 compass directions.
+static func _direction(text: String) -> Vector2:
+	var v := Vector2.ZERO
+	var hit := _find(text, "directions")
+	while not hit.is_empty():
+		v += Cfg.VOICE_DIRECTION_VECTORS[hit[0]]
+		text = _cut(text, hit)
+		hit = _find(text, "directions")
+	return Vector2(signf(v.x), signf(v.y)).normalized()
+
+
+static func _split_segments(text: String) -> Array:
+	var single_dirs := []
+	for id in Cfg.VOICE_DIRECTIONS:
+		single_dirs.append_array(Cfg.VOICE_DIRECTIONS[id])
+	var words := text.split(" ", false)
+	var segs := []
+	var cur := []
+	for i in words.size():
+		var w := words[i]
+		# "up and left" is one diagonal, not two orders.
+		var joins_dirs := w == "and" and i > 0 and i + 1 < words.size() \
+			and words[i - 1] in single_dirs and words[i + 1] in single_dirs
+		if w in ["and", "then", "also"] and not joins_dirs:
+			if not cur.is_empty():
+				segs.append(" " + " ".join(cur) + " ")
+			cur = []
+		elif not joins_dirs:
+			cur.append(w)
+	if not cur.is_empty():
+		segs.append(" " + " ".join(cur) + " ")
+	return segs
+
+
+## Parses a whole utterance into a list of commands. Orders can be chained with
+## "and" / "then"; a later order without a name reuses the previous soldier.
+static func parse_utterance(raw: String) -> Array:
+	var text := normalize(raw)
+	if text.strip_edges() == "":
+		return []
+	if not _find(text, "rematch").is_empty():
+		return [{"type": CmdType.REMATCH, "text": raw}]
+	if not _find(text, "deploy").is_empty():
+		return [{"type": CmdType.DEPLOY, "text": raw}]
+	var out := []
 	var subject := -2
-	for s_id in Cfg.VOICE_SUBJECTS:
-		for w in Cfg.VOICE_SUBJECTS[s_id]:
-			var needle: String = " " + str(w) + " "
-			var idx: int = cleaned.find(needle)
-			if idx != -1:
-				subject = s_id
-				cleaned = cleaned.erase(idx, needle.length())
-				cleaned = " " + " ".join(cleaned.split(" ", false)) + " "
+	var moved := []
+	for seg in _split_segments(text):
+		var cmd := _parse_segment(seg, subject)
+		if cmd["type"] == CmdType.NONE:
+			continue
+		subject = cmd.get("subject", subject)
+		cmd["text"] = raw
+		# "go to base then go up": the second move starts where the first ends.
+		if cmd["type"] == CmdType.MOVE_CALLOUT or cmd["type"] == CmdType.MOVE_DIR:
+			cmd["queue"] = subject in moved
+			moved.append(subject)
+		out.append(cmd)
+	return out
+
+
+## First command of an utterance (or NONE). Kept for tests and simple callers.
+static func parse_voice(raw: String) -> Dictionary:
+	var cmds := parse_utterance(raw)
+	return cmds[0] if not cmds.is_empty() else {"type": CmdType.NONE, "text": raw}
+
+
+static func best_parse(alts) -> Array:
+	for a in alts:
+		var cmds := parse_utterance(a)
+		if not cmds.is_empty():
+			return cmds
+	return []
+
+
+static func _parse_segment(text: String, inherited: int) -> Dictionary:
+	var subject := inherited
+	var named := false
+
+	# A number names a soldier only at the start ("two go left", "select three").
+	var words := text.split(" ", false)
+	var lead := 0
+	while lead < words.size() and words[lead] in ["select", "switch", "to", "unit", "soldier", "number"]:
+		lead += 1
+	if lead < words.size():
+		for entry in _phrases("numbers"):
+			if words[lead] == entry[0]:
+				subject = entry[1]
+				named = true
+				words.remove_at(lead)
+				text = " " + " ".join(words) + " "
 				break
-		if subject != -2:
-			break
 
-	# 3. Halt / Stop command
-	for w in Cfg.VOICE_ACTIONS["halt"]:
-		if cleaned.find(" " + w + " ") != -1:
-			return {"type": CmdType.HALT, "subject": subject, "text": raw}
+	# Distance words first: "all the way" must not read as "all" (= squad).
+	var dist := ""
+	var hit := _find(text, "far")
+	if not hit.is_empty():
+		dist = "far"
+		text = _cut(text, hit)
+	hit = _find(text, "short")
+	if not hit.is_empty():
+		dist = "short"
+		text = _cut(text, hit)
 
-	# 4. Abilities
-	for ab_id in Cfg.VOICE_PHRASES:
-		for w in Cfg.VOICE_PHRASES[ab_id]:
-			if cleaned.find(" " + w + " ") != -1:
-				var target_callout := ""
-				for c_id in Cfg.VOICE_CALLOUTS:
-					for cw in Cfg.VOICE_CALLOUTS[c_id]:
-						if cleaned.find(" " + cw + " ") != -1:
-							target_callout = c_id
-							break
-					if target_callout != "":
-						break
-				return {"type": CmdType.ABILITY, "ability": ab_id, "subject": subject, "target": target_callout, "text": raw}
+	if not named:
+		hit = _find(text, "subjects")
+		if not hit.is_empty():
+			subject = hit[0]
+			named = true
+			text = _cut(text, hit)
 
-	# 5. Watch / Aim command
-	var is_watch := false
-	for w in Cfg.VOICE_ACTIONS["watch"]:
-		if cleaned.find(" " + w + " ") != -1:
-			is_watch = true
-			break
-	if is_watch:
-		for d_id in Cfg.VOICE_DIRECTIONS:
-			for dw in Cfg.VOICE_DIRECTIONS[d_id]:
-				if cleaned.find(" " + dw + " ") != -1:
-					return {"type": CmdType.WATCH_DIR, "subject": subject, "param": d_id, "text": raw}
-		for c_id in Cfg.VOICE_CALLOUTS:
-			for cw in Cfg.VOICE_CALLOUTS[c_id]:
-				if cleaned.find(" " + cw + " ") != -1:
-					return {"type": CmdType.WATCH_CALLOUT, "subject": subject, "param": c_id, "text": raw}
+	if not _find(text, "halt").is_empty():
+		return {"type": CmdType.HALT, "subject": subject}
 
-	# 6. Move command to callout or direction
-	for c_id in Cfg.VOICE_CALLOUTS:
-		for cw in Cfg.VOICE_CALLOUTS[c_id]:
-			if cleaned.find(" " + cw + " ") != -1:
-				return {"type": CmdType.MOVE_CALLOUT, "subject": subject, "param": c_id, "text": raw}
+	if not named and not _find(text, "next").is_empty():
+		return {"type": CmdType.SELECT_NEXT, "subject": -2}
 
-	for d_id in Cfg.VOICE_DIRECTIONS:
-		for dw in Cfg.VOICE_DIRECTIONS[d_id]:
-			if cleaned.find(" " + dw + " ") != -1:
-				return {"type": CmdType.MOVE_DIR, "subject": subject, "param": d_id, "text": raw}
+	hit = _find(text, "abilities")
+	if not hit.is_empty():
+		text = _cut(text, hit)
+		var callout := _find(text, "callouts")
+		return {"type": CmdType.ABILITY, "ability": hit[0], "subject": subject,
+			"target": callout[0] if not callout.is_empty() else "",
+			"dir": _direction(text) if callout.is_empty() else Vector2.ZERO}
 
-	if cleaned.find(" advance ") != -1 or cleaned.find(" push forward ") != -1 or cleaned.find(" push ") != -1:
-		return {"type": CmdType.MOVE_DIR, "subject": subject, "param": "east", "text": raw}
-	if cleaned.find(" fall back ") != -1 or cleaned.find(" retreat ") != -1:
-		return {"type": CmdType.MOVE_DIR, "subject": subject, "param": "west", "text": raw}
+	hit = _find(text, "watch")
+	if not hit.is_empty():
+		var rest := _cut(text, hit)
+		var callout := _find(rest, "callouts")
+		if not callout.is_empty():
+			return {"type": CmdType.WATCH_CALLOUT, "subject": subject, "param": callout[0]}
+		var wdir := _direction(rest)
+		if wdir != Vector2.ZERO:
+			return {"type": CmdType.WATCH_DIR, "subject": subject, "param": direction_label(wdir), "dir": wdir}
 
-	# 7. Pure Selection
-	if subject >= 0:
-		return {"type": CmdType.SELECT, "subject": subject, "text": raw}
+	hit = _find(text, "callouts")
+	if not hit.is_empty():
+		return {"type": CmdType.MOVE_CALLOUT, "subject": subject, "param": hit[0]}
 
-	return {"type": CmdType.NONE, "text": raw}
+	var dir := _direction(text)
+	if dir != Vector2.ZERO:
+		return {"type": CmdType.MOVE_DIR, "subject": subject, "param": direction_label(dir), "dir": dir, "dist": dist}
+
+	if named and subject >= 0:
+		return {"type": CmdType.SELECT, "subject": subject}
+	return {"type": CmdType.NONE}

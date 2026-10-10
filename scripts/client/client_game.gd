@@ -48,6 +48,8 @@ var messages := []
 var ability_flash := [0.0, 0.0, 0.0, 0.0]
 
 var world_rotation := 0.0
+var voice_pings := []  # world markers for voice orders: {pos, label, t, max}
+var _voice_dest := {}  # soldier idx -> destination of its last voice move
 var _sel_lock_until := 0.0
 var _face_send_t := 0.0
 var _connected := false
@@ -66,6 +68,7 @@ var name_edit: LineEdit
 var url_edit: LineEdit
 var connect_btn: Button
 var status_label: Label
+var mic_btn: Button
 var voice: Node
 var sfx: Node
 
@@ -95,9 +98,20 @@ func _ready() -> void:
 ## Native-only testing helpers:
 ##   --screenshot=/path.png [--shot_delay=8]  save a frame and quit
 ##   --demo                                     squad auto-advances toward the centre
+##   --say="alpha go to kitchen;smoke mid"      feed voice commands once the match runs
 func _setup_debug_hooks() -> void:
 	if OS.has_feature("web"):
 		return
+	var say := _query_param("say")
+	if say != "":
+		var lines := Array(say.split(";", false))
+		var timer := Timer.new()
+		timer.wait_time = 1.2
+		timer.autostart = true
+		add_child(timer)
+		timer.timeout.connect(func():
+			if state == Cfg.State.PLAYING and not lines.is_empty():
+				voice.inject(lines.pop_front()))
 	var shot := _query_param("screenshot")
 	if shot != "":
 		var delay := float(_query_param("shot_delay")) if _query_param("shot_delay") != "" else 8.0
@@ -180,19 +194,21 @@ func _build_hud() -> void:
 	blocker.size = Vector2(Cfg.WORLD_SIZE.x, 64)
 	blocker.mouse_filter = Control.MOUSE_FILTER_STOP
 	hud_layer.add_child(blocker)
-	var mic_btn := Button.new()
-	mic_btn.text = "🎙️ Mic [V]"
+	mic_btn = Button.new()
 	mic_btn.focus_mode = Control.FOCUS_NONE
-	mic_btn.position = Vector2(1206, Cfg.WORLD_SIZE.y - 26)
-	mic_btn.size = Vector2(66, 22)
-	mic_btn.pressed.connect(func():
-		voice.toggle()
-		if voice.enabled:
-			_msg("🎙️ Voice active (listening)", Color(0.4, 1.0, 0.6))
-		else:
-			_msg("🎙️ Voice muted", Color(0.7, 0.7, 0.7)))
+	mic_btn.position = Vector2(Cfg.WORLD_SIZE.x - 82, Cfg.WORLD_SIZE.y + 10)
+	mic_btn.size = Vector2(72, 22)
+	mic_btn.add_theme_font_size_override("font_size", 11)
+	mic_btn.pressed.connect(_toggle_voice)
 	hud_layer.add_child(mic_btn)
 	hud_layer.visible = false
+
+
+func _toggle_voice() -> void:
+	if not voice.available:
+		_msg("Voice needs Chrome / Edge / Safari (web build). Keys still work.", Color(1.0, 0.7, 0.4))
+		return
+	voice.toggle()
 
 
 func _build_menu() -> void:
@@ -256,12 +272,12 @@ func _build_menu() -> void:
 	box.add_child(status_label)
 	box.add_child(HSeparator.new())
 	var help := Label.new()
-	help.text = "VOICE COMMANDS (Hands-Free):\n" \
-		+ "• Select: \"Alpha\", \"Bravo\", \"Charlie\", \"Squad\"\n" \
-		+ "• Move: \"Alpha to Mid\", \"Advance to North\", \"Fall back to Base\", \"Stop\"\n" \
-		+ "• Aim: \"Watch North\", \"Watch Mid\", \"Aim South\"\n" \
-		+ "• Abilities: \"Smoke Mid\", \"Scan\", \"Suppress\", \"Squad Rush\"\n" \
-		+ "• Match: \"Deploy\", \"Rematch\"\n\n" \
+	help.text = "VOICE COMMANDS  ([who] [action] [where], mic starts on Deploy, V toggles)\n" \
+		+ "- Who: \"Alpha\" / \"Bravo\" / \"Charlie\" / \"Squad\" (or nobody = selected soldier)\n" \
+		+ "- Places: \"Bravo go to kitchen\", \"Squad to mid\", \"Charlie push enemy tables\"\n" \
+		+ "- Directions: \"Go left\", \"Alpha move up\", \"Advance\", \"Fall back a bit\", \"Stop\"\n" \
+		+ "- Aim: \"Watch left\", \"Bravo cover mid\"   - Abilities: \"Smoke kitchen\", \"Scan\", \"Rush\"\n" \
+		+ "- Chain: \"Bravo go to buffet and watch right\"   - Match: \"Rematch\"\n\n" \
 		+ "Fallback: LMB move · RMB face · 1-3 select · Q E R F abilities · V mic toggle"
 	help.add_theme_font_size_override("font_size", 12)
 	help.add_theme_color_override("font_color", Color(0.75, 0.78, 0.82))
@@ -500,6 +516,9 @@ func _process(dt: float) -> void:
 	_tick_list(scan_fx, dt)
 	_tick_list(ghosts, dt)
 	_tick_list(messages, dt)
+	_tick_list(voice_pings, dt)
+	if mic_btn:
+		mic_btn.text = "Mic ON [V]" if voice.enabled else "Mic OFF [V]"
 	for a in 4:
 		ability_flash[a] = maxf(0.0, ability_flash[a] - dt * 2.0)
 	if vision_mask:
@@ -548,12 +567,7 @@ func _unhandled_input(event: InputEvent) -> void:
 			KEY_E: _use_ability(Cfg.Ability.SCAN, false)
 			KEY_R: _use_ability(Cfg.Ability.SUPPRESS, false)
 			KEY_F: _use_ability(Cfg.Ability.RUSH, false)
-			KEY_V:
-				voice.toggle()
-				if voice.enabled:
-					_msg("🎙️ Voice active (listening)", Color(0.4, 1.0, 0.6))
-				else:
-					_msg("🎙️ Voice muted", Color(0.7, 0.7, 0.7))
+			KEY_V: _toggle_voice()
 			KEY_ENTER, KEY_KP_ENTER:
 				if state == Cfg.State.ENDED:
 					Net.c_rematch.rpc_id(1)
@@ -582,11 +596,7 @@ func _use_ability(ability: int, via_voice: bool) -> void:
 
 
 func _soldier_name(idx: int) -> String:
-	match idx:
-		0: return "ALPHA"
-		1: return "BRAVO"
-		2: return "CHARLIE"
-		_: return "SOLDIER"
+	return Voice.SUBJECT_NAMES.get(idx, "SOLDIER")
 
 
 func _on_voice_command(cmd: Dictionary) -> void:
@@ -594,155 +604,125 @@ func _on_voice_command(cmd: Dictionary) -> void:
 	if ctype == Voice.CmdType.NONE:
 		return
 
-	# Meta commands (deploy / rematch)
 	if ctype == Voice.CmdType.DEPLOY:
-		if menu_layer.visible:
-			_msg("🎙️ Deploying...", Color(0.4, 0.9, 1.0))
+		if menu_layer.visible and not connect_btn.disabled:
 			_on_connect_pressed()
 		return
 	elif ctype == Voice.CmdType.REMATCH:
-		if state == Cfg.State.ENDED:
-			_msg("🎙️ Rematch requested", Color(0.4, 0.9, 1.0))
+		if state == Cfg.State.ENDED and Net.is_online():
 			Net.c_rematch.rpc_id(1)
 		return
 
 	if slot < 0 or not Net.is_online():
 		return
 
+	if state != Cfg.State.PLAYING and state != Cfg.State.COUNTDOWN:
+		return
 	sfx.play("voice", -8.0)
 	var subj: int = cmd.get("subject", -2)
+	var units := _voice_units(subj)
+	if units.is_empty():
+		_msg("%s is down" % _soldier_name(subj if subj >= 0 else selected), Color(1.0, 0.5, 0.4))
+		return
+	if subj >= 0:
+		_select(subj)
 
 	match ctype:
-		Voice.CmdType.SELECT:
-			if subj >= 0:
-				_select(subj)
-				_msg("🎙️ Selected %s" % _soldier_name(subj), Color(0.4, 0.9, 1.0))
+		Voice.CmdType.SELECT_NEXT:
+			_cycle_select()
 
 		Voice.CmdType.HALT:
-			if subj == -1:
-				var orig_sel := selected
-				for i in Cfg.SQUAD_SIZE:
-					if own[i]["alive"]:
-						_select(i)
-						Net.c_move.rpc_id(1, own[i]["disp"], false)
-				if own[orig_sel]["alive"]:
-					_select(orig_sel)
-				_msg("🎙️ [SQUAD] HALT", Color(1.0, 0.8, 0.4))
-			else:
-				var target_idx: int = subj if subj >= 0 else selected
-				if target_idx >= 0 and target_idx < own.size() and own[target_idx]["alive"]:
-					if target_idx != selected:
-						_select(target_idx)
-					Net.c_move.rpc_id(1, own[target_idx]["disp"], false)
-					_msg("🎙️ [%s] HALT" % _soldier_name(target_idx), Color(1.0, 0.8, 0.4))
+			for i in units:
+				Net.c_unit_stop.rpc_id(1, i)
+				_ping(own[i]["pos"], "")
 
 		Voice.CmdType.MOVE_CALLOUT:
-			var cid: String = cmd.get("param", "")
-			var target_pos: Vector2 = map.callout_position(cid, slot)
-			if target_pos == Vector2.ZERO:
-				return
-			if subj == -1:
-				var offsets := [Vector2(-24, 0), Vector2(24, -20), Vector2(0, 24)]
-				var orig_sel := selected
-				for i in Cfg.SQUAD_SIZE:
-					if own[i]["alive"]:
-						_select(i)
-						Net.c_move.rpc_id(1, target_pos + offsets[i], false)
-				if own[orig_sel]["alive"]:
-					_select(orig_sel)
-				_msg("🎙️ [SQUAD] Move -> %s" % cid.to_upper(), Color(0.4, 0.9, 1.0))
-			else:
-				var target_idx: int = subj if subj >= 0 else selected
-				if target_idx >= 0 and target_idx < own.size() and own[target_idx]["alive"]:
-					if target_idx != selected:
-						_select(target_idx)
-					Net.c_move.rpc_id(1, target_pos, false)
-					_msg("🎙️ [%s] Move -> %s" % [_soldier_name(target_idx), cid.to_upper()], Color(0.4, 0.9, 1.0))
+			var cid: String = cmd["param"]
+			var target := map.callout_position(cid, slot)
+			var spots := _formation(target, units.size())
+			for k in units.size():
+				_voice_move(units[k], spots[k], cmd.get("queue", false))
+			_ping(target, MapData.callout_label(cid))
 
 		Voice.CmdType.MOVE_DIR:
-			var dir_name: String = cmd.get("param", "")
-			var angle: float = map.team_direction_angle(dir_name, slot)
-			var step_vec := Vector2.from_angle(angle) * 140.0
-			if subj == -1:
-				var orig_sel := selected
-				for i in Cfg.SQUAD_SIZE:
-					if own[i]["alive"]:
-						_select(i)
-						var dest: Vector2 = own[i]["disp"] + step_vec
-						dest.x = clampf(dest.x, Cfg.TILE, Cfg.WORLD_SIZE.x - Cfg.TILE)
-						dest.y = clampf(dest.y, Cfg.TILE, Cfg.WORLD_SIZE.y - Cfg.TILE)
-						Net.c_move.rpc_id(1, dest, false)
-				if own[orig_sel]["alive"]:
-					_select(orig_sel)
-				_msg("🎙️ [SQUAD] Step %s" % dir_name.to_upper(), Color(0.4, 0.9, 1.0))
-			else:
-				var target_idx: int = subj if subj >= 0 else selected
-				if target_idx >= 0 and target_idx < own.size() and own[target_idx]["alive"]:
-					if target_idx != selected:
-						_select(target_idx)
-					var dest: Vector2 = own[target_idx]["disp"] + step_vec
-					dest.x = clampf(dest.x, Cfg.TILE, Cfg.WORLD_SIZE.x - Cfg.TILE)
-					dest.y = clampf(dest.y, Cfg.TILE, Cfg.WORLD_SIZE.y - Cfg.TILE)
-					Net.c_move.rpc_id(1, dest, false)
-					_msg("🎙️ [%s] Step %s" % [_soldier_name(target_idx), dir_name.to_upper()], Color(0.4, 0.9, 1.0))
+			var dir := _world_dir(cmd["dir"])
+			var max_d: float = {"short": Cfg.VOICE_STEP_SHORT, "far": Cfg.VOICE_STEP_FAR}.get(cmd.get("dist", ""), Cfg.VOICE_STEP)
+			var queue: bool = cmd.get("queue", false)
+			for i in units:
+				var from: Vector2 = _voice_dest.get(i, own[i]["pos"]) if queue else own[i]["pos"]
+				var dest := _dir_destination(from, dir, max_d)
+				_voice_move(i, dest, queue)
+				_ping(dest, "")
 
 		Voice.CmdType.WATCH_DIR:
-			var dir_name: String = cmd.get("param", "")
-			var angle: float = map.team_direction_angle(dir_name, slot)
-			if subj == -1:
-				var orig_sel := selected
-				for i in Cfg.SQUAD_SIZE:
-					if own[i]["alive"]:
-						_select(i)
-						Net.c_face.rpc_id(1, own[i]["disp"] + Vector2.from_angle(angle) * 100.0)
-				if own[orig_sel]["alive"]:
-					_select(orig_sel)
-				_msg("🎙️ [SQUAD] Watch %s" % dir_name.to_upper(), Color(0.4, 0.9, 1.0))
-			else:
-				var target_idx: int = subj if subj >= 0 else selected
-				if target_idx >= 0 and target_idx < own.size() and own[target_idx]["alive"]:
-					if target_idx != selected:
-						_select(target_idx)
-					Net.c_face.rpc_id(1, own[target_idx]["disp"] + Vector2.from_angle(angle) * 100.0)
-					_msg("🎙️ [%s] Watch %s" % [_soldier_name(target_idx), dir_name.to_upper()], Color(0.4, 0.9, 1.0))
+			var dir := _world_dir(cmd["dir"])
+			for i in units:
+				Net.c_unit_face.rpc_id(1, i, own[i]["pos"] + dir * 100.0)
+				_ping(own[i]["pos"] + dir * 48.0, "")
 
 		Voice.CmdType.WATCH_CALLOUT:
-			var cid: String = cmd.get("param", "")
-			var target_pos: Vector2 = map.callout_position(cid, slot)
-			if target_pos == Vector2.ZERO:
-				return
-			if subj == -1:
-				var orig_sel := selected
-				for i in Cfg.SQUAD_SIZE:
-					if own[i]["alive"]:
-						_select(i)
-						Net.c_face.rpc_id(1, target_pos)
-				if own[orig_sel]["alive"]:
-					_select(orig_sel)
-				_msg("🎙️ [SQUAD] Watch %s" % cid.to_upper(), Color(0.4, 0.9, 1.0))
-			else:
-				var target_idx: int = subj if subj >= 0 else selected
-				if target_idx >= 0 and target_idx < own.size() and own[target_idx]["alive"]:
-					if target_idx != selected:
-						_select(target_idx)
-					Net.c_face.rpc_id(1, target_pos)
-					_msg("🎙️ [%s] Watch %s" % [_soldier_name(target_idx), cid.to_upper()], Color(0.4, 0.9, 1.0))
+			var cid: String = cmd["param"]
+			var target := map.callout_position(cid, slot)
+			for i in units:
+				Net.c_unit_face.rpc_id(1, i, target)
+			_ping(target, MapData.callout_label(cid))
 
 		Voice.CmdType.ABILITY:
-			var ab: int = cmd.get("ability", -1)
-			if ab < 0 or not Cfg.ABILITIES.has(ab):
-				return
-			var target_idx: int = subj if subj >= 0 else selected
-			if target_idx >= 0 and target_idx < own.size() and own[target_idx]["alive"]:
-				if target_idx != selected:
-					_select(target_idx)
-			var target_pos := Vector2.ZERO
-			var t_callout: String = cmd.get("target", "")
-			if t_callout != "":
-				target_pos = map.callout_position(t_callout, slot)
-			else:
-				var cur: Dictionary = own[selected]
-				var face_ang: float = cur.get("disp_facing", cur.get("facing", 0.0))
-				target_pos = cur.get("disp", Vector2.ZERO) + Vector2.from_angle(face_ang) * 160.0
-			_msg("🎙️ [%s] %s" % [_soldier_name(selected), Cfg.ABILITIES[ab]["name"].to_upper()], Color(0.5, 1.0, 0.7))
-			Net.c_ability.rpc_id(1, ab, target_pos, true)
+			var ab: int = cmd["ability"]
+			var caster: Dictionary = own[selected]
+			var target: Vector2 = caster["pos"] + Vector2.from_angle(caster["facing"]) * 160.0
+			if cmd.get("target", "") != "":
+				target = map.callout_position(cmd["target"], slot)
+			elif cmd.get("dir", Vector2.ZERO) != Vector2.ZERO:
+				target = caster["pos"] + _world_dir(cmd["dir"]) * 200.0
+			Net.c_ability.rpc_id(1, ab, target, true)
+			if ab == Cfg.Ability.SMOKE:
+				_ping(target, "SMOKE")
+
+
+func _voice_move(idx: int, dest: Vector2, queue: bool) -> void:
+	Net.c_unit_move.rpc_id(1, idx, dest, queue)
+	_voice_dest[idx] = dest
+
+
+## Soldiers a voice order applies to: the named one, the whole squad, or the
+## selected soldier when nobody was named. Dead soldiers are skipped.
+func _voice_units(subj: int) -> Array:
+	var out := []
+	for i in Cfg.SQUAD_SIZE:
+		if own[i]["alive"] and (subj == -1 or i == (subj if subj >= 0 else selected)):
+			out.append(i)
+	return out
+
+
+## Screen-relative direction (x right, y down) -> world direction. Red's world
+## is rotated 180 degrees on screen.
+func _world_dir(screen_dir: Vector2) -> Vector2:
+	return screen_dir.rotated(-world_rotation)
+
+
+## Walk straight until a wall; if something blocks the way right in front of the
+## soldier, aim further out and let the server's A* path around it.
+func _dir_destination(from: Vector2, dir: Vector2, max_d: float) -> Vector2:
+	var d := map.walk_distance(from, dir, max_d, Cfg.SOLDIER_RADIUS)
+	if d >= Cfg.TILE * 1.5:
+		return from + dir * d
+	var far := from + dir * minf(max_d, Cfg.VOICE_STEP)
+	return Vector2(clampf(far.x, Cfg.TILE, Cfg.WORLD_SIZE.x - Cfg.TILE), clampf(far.y, Cfg.TILE, Cfg.WORLD_SIZE.y - Cfg.TILE))
+
+
+## Spread squad members around a destination: one on the spot, two slightly
+## behind on either side (from this player's point of view).
+func _formation(target: Vector2, count: int) -> Array:
+	var fwd := _world_dir(Vector2.RIGHT)
+	var side := fwd.orthogonal()
+	var offsets := [Vector2.ZERO, side * 28.0 - fwd * 16.0, -side * 28.0 - fwd * 16.0]
+	var out := []
+	for k in count:
+		var p: Vector2 = target + offsets[k % offsets.size()]
+		out.append(target if map.is_wall_at(p) else p)
+	return out
+
+
+func _ping(pos: Vector2, label: String) -> void:
+	voice_pings.append({"pos": pos, "label": label, "t": 1.6, "max": 1.6})

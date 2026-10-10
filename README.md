@@ -78,13 +78,14 @@ If you don't have Godot installed on your machine:
 
 | Action | Mouse / Keyboard | Spoken Voice Command | Description |
 |---|---|---|---|
-| **Select Soldier** | `1`, `2`, `3`, `Tab`, or Click soldier | *"Alpha"*, *"Bravo"*, *"Charlie"* | Directs active squad member (1=Rifle, 2=SMG, 3=Shotgun). |
-| **Move to Landmark** | **Left Click** | *"Alpha to Mid"*, *"Bravo to North"*, *"Move to Base"* | Soldier navigates via A* pathfinding to named landmark. |
-| **Squad Move** | — | *"Squad to Mid"*, *"All fall back to Base"* | Entire squad advances or retreats in formation. |
-| **Directional Step** | — | *"Advance"*, *"Fall back"*, *"Move North"*, *"Move South"* | Takes a tactical stride (~140px) in that direction. |
+| **Select Soldier** | `1`, `2`, `3`, `Tab`, or Click soldier | *"Alpha"*, *"Bravo"*, *"Charlie"*, *"Next"* | Directs active squad member (1=Rifle, 2=SMG, 3=Shotgun). |
+| **Move to Callout** | **Left Click** | *"Bravo go to kitchen"*, *"Mid"*, *"Charlie push enemy tables"* | A* path to a named point (labelled badges on the map). |
+| **Squad Move** | — | *"Squad to mid"*, *"Everyone fall back to base"* | Entire squad moves in a small formation. |
+| **Move in Direction** | — | *"Go left"*, *"Alpha move up"*, *"Advance"*, *"Fall back a bit"* | Walks that way (screen-relative) until a wall. |
 | **Halt / Stop** | — | *"Stop"*, *"Alpha halt"*, *"Squad hold"* | Cancels path and immediately holds position. |
-| **Aim / Watch Angle** | **Right Click** or **Right-Drag** | *"Watch North"*, *"Aim South"*, *"Bravo watch Mid"* | Rotates firing cone to cover that corridor or landmark. |
-| **Smoke Grenade** | `Q` | *"Smoke Mid"*, *"Pop smoke"* | Deploys vision-blocking smoke (max throw range 340px). |
+| **Aim / Watch Angle** | **Right Click** or **Right-Drag** | *"Watch left"*, *"Bravo cover mid"*, *"Squad look up"* | Rotates firing cone to cover that direction or callout. |
+| **Chained Orders** | — | *"Bravo go to buffet and watch right"* | Several orders in one sentence; moves queue up. |
+| **Smoke Grenade** | `Q` | *"Smoke mid"*, *"Smoke left"*, *"Pop smoke"* | Deploys vision-blocking smoke (max throw range 340px). |
 | **Motion Scan** | `E` | *"Scan"* | Emits radar pulse revealing moving enemies within 460px. |
 | **Suppressive Fire** | `R` | *"Suppress"* | Widens cone by 80%, increases fire rate by 30% for 6s. |
 | **Rush Boost** | `F` | *"Rush"*, *"Squad rush"* | Boosts soldier movement speed by +65% for 4s. |
@@ -125,7 +126,7 @@ All balancing constants live in [`scripts/config.gd`](file:///Users/cyrill/hacka
 - **Abilities**: Adjust cooldowns, durations, and effects in the `ABILITIES` dictionary.
 
 ### How to Add or Edit Voice Phrases
-In [`scripts/config.gd`](file:///Users/cyrill/hackathon-game/scripts/config.gd), update `VOICE_PHRASES`. Add alternative spellings or common speech recognizer mishearings:
+All voice vocabulary lives in [`scripts/config.gd`](file:///Users/cyrill/hackathon-game/scripts/config.gd): `VOICE_SUBJECTS` (who), `CALLOUTS` (named map points with their badge label, position and spoken words), `VOICE_DIRECTIONS`, `VOICE_ACTIONS` and `VOICE_PHRASES` (abilities). Add alternative spellings or common speech recognizer mishearings, then run `godot --headless --path . --script res://tests/test_voice_parser.gd`. See [VOICE_CONTROL.md](VOICE_CONTROL.md#-developer-guide) for details.
 
 ```gdscript
 const VOICE_PHRASES := {
@@ -181,8 +182,8 @@ flowchart TD
         HUD_B[hud.gd\nSoldier Cards & Cooldowns]
     end
 
-    CLI_A -- "c_move, c_face, c_ability (Intent)" --> NET_S
-    CLI_B -- "c_move, c_face, c_ability (Intent)" --> NET_S
+    CLI_A -- "c_move, c_face, c_unit_*, c_ability (Intent)" --> NET_S
+    CLI_B -- "c_move, c_face, c_unit_*, c_ability (Intent)" --> NET_S
     NET_S --> SV
     SV --> MAP
     SV -- "Filtered Snapshot A (Only visible enemies)" --> CLI_A

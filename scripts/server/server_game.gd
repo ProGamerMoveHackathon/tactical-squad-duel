@@ -186,29 +186,58 @@ func on_select(id: int, idx: int) -> void:
 	selected[slot] = idx
 
 
-func on_move(id: int, target: Vector2, keep_facing: bool) -> void:
-	var slot := _slot_of(id)
-	if slot == -1 or state != Cfg.State.PLAYING or not _valid_vec(target):
-		return
-	var s := _selected_soldier(slot)
-	if s == null:
+func _unit(slot: int, idx: int) -> Soldier:
+	if slot == -1 or idx < 0 or idx >= Cfg.SQUAD_SIZE:
+		return null
+	var s: Soldier = squads[slot][idx]
+	return s if s.alive else null
+
+
+func _order_move(s: Soldier, target: Vector2, keep_facing: bool) -> void:
+	if s == null or state != Cfg.State.PLAYING or not _valid_vec(target):
 		return
 	s.path = map.find_path(s.pos, target)
 	if not keep_facing:
 		s.facing_lock = false
 
 
-func on_face(id: int, target: Vector2) -> void:
-	var slot := _slot_of(id)
-	if slot == -1 or not _valid_vec(target):
+func _order_face(s: Soldier, target: Vector2) -> void:
+	if s == null or not _valid_vec(target) or target.distance_to(s.pos) < 2.0:
 		return
 	if state != Cfg.State.PLAYING and state != Cfg.State.COUNTDOWN:
 		return
-	var s := _selected_soldier(slot)
-	if s == null or target.distance_to(s.pos) < 2.0:
-		return
 	s.watch_angle = (target - s.pos).angle()
 	s.facing_lock = true
+
+
+func on_move(id: int, target: Vector2, keep_facing: bool) -> void:
+	var slot := _slot_of(id)
+	if slot != -1:
+		_order_move(_selected_soldier(slot), target, keep_facing)
+
+
+func on_face(id: int, target: Vector2) -> void:
+	var slot := _slot_of(id)
+	if slot != -1:
+		_order_face(_selected_soldier(slot), target)
+
+
+func on_unit_move(id: int, idx: int, target: Vector2, queue: bool) -> void:
+	var s := _unit(_slot_of(id), idx)
+	if queue and s != null and not s.path.is_empty() and state == Cfg.State.PLAYING and _valid_vec(target):
+		s.path.append_array(map.find_path(s.path[s.path.size() - 1], target))
+		return
+	_order_move(s, target, false)
+
+
+func on_unit_face(id: int, idx: int, target: Vector2) -> void:
+	_order_face(_unit(_slot_of(id), idx), target)
+
+
+func on_unit_stop(id: int, idx: int) -> void:
+	var s := _unit(_slot_of(id), idx)
+	if s != null:
+		s.path.clear()
 
 
 func on_ability(id: int, ability: int, target: Vector2, via_voice: bool) -> void:

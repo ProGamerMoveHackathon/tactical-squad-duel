@@ -110,40 +110,47 @@ func spawn_facing(team: int) -> float:
 	return 0.0 if team == 0 else PI
 
 
-## Tactical callout waypoints (Team 0 coordinates).
-## For Team 1, positions are inverted (Cfg.WORLD_SIZE - p) so callouts match the screen.
-const CALLOUT_POSITIONS := {
-	"base": Vector2(3.5 * Cfg.TILE, 11.0 * Cfg.TILE),
-	"yard": Vector2(8.0 * Cfg.TILE, 11.0 * Cfg.TILE),
-	"choke": Vector2(14.0 * Cfg.TILE, 5.0 * Cfg.TILE),
-	"flank": Vector2(14.0 * Cfg.TILE, 13.0 * Cfg.TILE),
-	"pillar": Vector2(16.0 * Cfg.TILE, 16.0 * Cfg.TILE),
-	"mid": Vector2(20.0 * Cfg.TILE, 8.5 * Cfg.TILE),
-	"north": Vector2(20.0 * Cfg.TILE, 2.0 * Cfg.TILE),
-	"south": Vector2(20.0 * Cfg.TILE, 18.5 * Cfg.TILE),
-	"enemy": Vector2(36.5 * Cfg.TILE, 11.0 * Cfg.TILE),
-}
+## All callout ids, including the "enemy_<id>" twins of mirrored callouts.
+static func callout_ids() -> Array:
+	var out := []
+	for id in Cfg.CALLOUTS:
+		out.append(id)
+		if Cfg.CALLOUTS[id]["mirror"]:
+			out.append("enemy_" + id)
+	return out
 
 
+static func callout_label(callout_id: String) -> String:
+	var enemy := callout_id.begins_with("enemy_")
+	var base_id := callout_id.trim_prefix("enemy_")
+	if not Cfg.CALLOUTS.has(base_id):
+		return callout_id.to_upper()
+	return ("ENEMY " if enemy else "") + str(Cfg.CALLOUTS[base_id]["label"])
+
+
+## World position of a callout as seen by `team` (Vector2.ZERO if unknown).
 func callout_position(callout_id: String, team: int) -> Vector2:
-	if not CALLOUT_POSITIONS.has(callout_id):
+	var enemy := callout_id.begins_with("enemy_")
+	var base_id := callout_id.trim_prefix("enemy_")
+	if not Cfg.CALLOUTS.has(base_id):
 		return Vector2.ZERO
-	var p: Vector2 = CALLOUT_POSITIONS[callout_id]
+	var p: Vector2 = Cfg.CALLOUTS[base_id]["tile"] * float(T)
+	if enemy:
+		p = Cfg.WORLD_SIZE - p
 	if team == 1:
 		p = Cfg.WORLD_SIZE - p
 	return p
 
 
-func team_direction_angle(dir_name: String, team: int) -> float:
-	var a := 0.0
-	match dir_name:
-		"north", "up": a = -PI * 0.5
-		"south", "down": a = PI * 0.5
-		"east", "forward", "front", "ahead", "right": a = 0.0
-		"west", "back", "rear", "behind", "left": a = PI
-	if team == 1:
-		a = wrapf(a + PI, -PI, PI)
-	return a
+## How far a circle of radius r can walk from `from` along unit `dir` before
+## touching a wall (capped at max_d).
+func walk_distance(from: Vector2, dir: Vector2, max_d: float, r: float) -> float:
+	var n := Vector2(-dir.y, dir.x) * (r - 1.0)
+	var reach := max_d + r + 2.0
+	var best := reach
+	for off in [Vector2.ZERO, n, -n]:
+		best = minf(best, raycast(from + off, dir, reach))
+	return clampf(best - r - 2.0, 0.0, max_d)
 
 
 ## Distance along a normalised direction until the first wall (capped at max_d).

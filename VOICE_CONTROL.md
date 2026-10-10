@@ -1,229 +1,177 @@
 # 🎙️ Voice Control & Tactical Command Guide
 
-> **Tactical Squad Duel** supports **100% hands-free voice gameplay**. You can command your entire squad—selection, positioning, sightlines, abilities, joining matches, and rematches—purely through natural spoken military commands, inspired by *There Came an Echo* and *Tom Clancy's EndWar*.
+> **Tactical Squad Duel** can be played completely hands-free: select soldiers, send them to named places on the map, steer them in a direction, aim, and fire abilities, all by speaking.
 >
-> Standard mouse and keyboard controls remain active at all times as responsive fallbacks.
+> Mouse and keyboard keep working at all times.
 
 ---
 
 ## 📑 Table of Contents
-1. [Browser Setup & Microphone Permissions](#-browser-setup--microphone-permissions)
-2. [Command Grammar: How to Speak](#-command-grammar-how-to-speak)
-3. [Complete Voice Command Cheat Sheet](#-complete-voice-command-cheat-sheet)
-4. [Tactical Landmarks & Callout Map](#-tactical-landmarks--callout-map)
-5. [Perspective & Directional System](#-perspective--directional-system)
-6. [HUD & Audio Feedback](#-hud--audio-feedback)
-7. [Tips for Reliable Voice Recognition](#-tips-for-reliable-voice-recognition)
-8. [Developer Guide: Extending Voice Commands](#-developer-guide-extending-voice-commands)
+1. [Browser Setup & Microphone](#-browser-setup--microphone)
+2. [Command Grammar](#-command-grammar)
+3. [Command Cheat Sheet](#-command-cheat-sheet)
+4. [Map Callouts (Fixed Points)](#-map-callouts-fixed-points)
+5. [Directions](#-directions)
+6. [Feedback: What You See](#-feedback-what-you-see)
+7. [Tips for Reliable Recognition](#-tips-for-reliable-recognition)
+8. [Developer Guide](#-developer-guide)
 
 ---
 
-## 🌐 Browser Setup & Microphone Permissions
+## 🌐 Browser Setup & Microphone
 
-The voice system uses the native browser **Web Speech API** via Godot's `JavaScriptBridge`.
+Voice uses the browser **Web Speech API** through Godot's `JavaScriptBridge`.
 
-### Supported Browsers
-- **Google Chrome** (Recommended, lowest latency)
-- **Microsoft Edge** (Recommended)
-- **Brave** (Enable Web Speech in settings)
-- **Safari** (macOS / iOS)
+- **Supported**: Google Chrome and Microsoft Edge (recommended), Safari. Firefox has no Web Speech API, so use the keyboard there.
+- **Secure context required**: the mic only works on `http://localhost` or `https://`.
+- Chrome's recognizer runs in the cloud, so it needs an internet connection.
 
-### Microphone Permissions
-1. When you first open the game on `http://localhost:8080` (or `https://your-domain.com`), the browser will ask for microphone permission. Click **Allow**.
-2. **Auto-Start**: Voice recognition starts automatically when you click **Deploy** or press **V**.
-3. **Manual Toggle**: Click the **Mic** button in the lower right corner or press **V** to start/stop listening.
+**Turning it on**
+1. The mic starts automatically when you click **Deploy**. Allow the microphone when the browser asks.
+2. Press **V** or click **Mic ON/OFF** (bottom-right) to toggle listening at any time.
 
 ---
 
-## 🗣️ Command Grammar: How to Speak
+## 🗣️ Command Grammar
 
-The parser recognizes natural speech following a standard squad military syntax:
+```
+[who]  [action]  [where]
+ Bravo   go to    kitchen
+```
 
-$$\mathbf{[Subject]} \longrightarrow \mathbf{[Action]} \longrightarrow \mathbf{[Target / Direction]}$$
+**Who** (optional)
+| Say | Soldier |
+|---|---|
+| `Alpha`, `Rifle`, `Sniper` | 1 · Rifle |
+| `Bravo`, `SMG`, `Gunner` | 2 · SMG |
+| `Charlie`, `Shotgun`, `Breacher` | 3 · Shotgun |
+| `Squad`, `Team`, `Everyone`, `All` | all living soldiers |
+| `One` / `Two` / `Three` | only at the **start** (`"two, go left"`), because recognizers often write "to" as "two" |
+| *(nobody)* | the currently selected soldier |
 
-### 1. Subject (Who)
-- **Individual Soldiers**:
-  - `Alpha` (Soldier 1 · Rifle)
-  - `Bravo` (Soldier 2 · SMG)
-  - `Charlie` (Soldier 3 · Shotgun)
-  - *Synonyms*: `"One"`, `"Two"`, `"Three"`, `"Rifle"`, `"SMG"`, `"Shotgun"`, `"Gunner"`, `"Breacher"`
-- **All Soldiers**:
-  - `Squad`, `All`, `Team`, `Everyone`
-- **Default (Omitted)**:
-  - If you omit the name (e.g. just say *"Move to Mid"*), the order automatically applies to the **currently active soldier**.
+Naming a single soldier also **selects** them, so a follow-up like `"smoke"` comes from the soldier you just talked to. Squad orders don't change the selection.
 
-### 2. Actions & Targets (What & Where)
-- **Movement to Landmarks**: *"Alpha to Mid"*, *"Bravo go to North"*, *"Advance to Choke"*
-- **Squad Formations**: *"Squad move to Mid"*, *"All fall back to Base"*
-- **Directional Steps**: *"Move North"*, *"Advance"*, *"Step back"*, *"Fall back"*
-- **Aiming & Watching**: *"Watch North"*, *"Face East"*, *"Cover Mid"*, *"Hold angle"*
-- **Abilities**: *"Smoke Mid"*, *"Scan"*, *"Suppress"*, *"Squad rush"*
-- **Stop**: *"Stop"*, *"Halt"*, *"Hold position"*, *"Stay"*
-- **Match Progression**: *"Deploy"*, *"Start"*, *"Rematch"*, *"Play again"*
+**Chaining**: join orders with `and` / `then`. An order without a name reuses the last soldier you named, and a second move for the same soldier is **queued** after the first:
+- `"Bravo go to kitchen and watch right"`
+- `"Alpha fall back to base then go up a bit"` (walks to base first, then up)
+- `"Alpha go to mid then Charlie go to tables"`
 
 ---
 
-## 📋 Complete Voice Command Cheat Sheet
+## 📋 Command Cheat Sheet
 
-| Category | Example Spoken Phrases | In-Game Action |
+| Category | Example phrases | What happens |
 |---|---|---|
-| **Selection** | `"Alpha"`, `"Bravo"`, `"Charlie"`<br>`"Select One"`, `"Switch to Rifle"` | Selects and highlights that squad member. |
-| **Callout Movement** | `"Alpha move to Mid"`<br>`"Bravo to North"`<br>`"Charlie advance to Choke"`<br>`"Move to Base"` | Selected soldier computes an A* path straight to that landmark. |
-| **Squad Movement** | `"Squad advance to Mid"`<br>`"All fall back to Base"`<br>`"Team move to Yard"` | Entire squad advances or retreats in a tactical spread formation. |
-| **Directional Steps** | `"Advance"`, `"Push forward"`<br>`"Fall back"`, `"Retreat"`<br>`"Step North"`, `"Move South"` | Steps ~140 pixels in that compass direction. |
-| **Halt / Hold** | `"Stop"`<br>`"Alpha halt"`<br>`"Squad hold position"` | Cancels waypoints and immediately stops moving. |
-| **Watch / Aim Angle** | `"Watch North"`<br>`"Aim South"`<br>`"Bravo watch Mid"`<br>`"Cover East"` | Rotates firing cone to guard that direction or landmark. |
-| **Targeted Abilities** | `"Smoke Mid"`<br>`"Pop smoke"`<br>`"Charlie smoke"` | Deploys vision-blocking smoke at the target landmark or ahead. |
-| **Squad Abilities** | `"Scan"`<br>`"Suppress"`<br>`"Squad rush"` | Casts ability with server cooldown check & audio chirp. |
-| **Match Flow** | `"Deploy"`, `"Ready"`, `"Start"`<br>`"Rematch"`, `"Play again"` | Connects to lobby or requests an instant rematch after match ends. |
+| **Select** | `"Alpha"`, `"Select three"`, `"Switch to Charlie"`, `"Next"` | Selects that soldier (`next` cycles). |
+| **Go to a callout** | `"Bravo go to kitchen"`, `"Squad to mid"`, `"Charlie push enemy tables"` | A* path to the named point. Squads spread into a small formation. |
+| **Move in a direction** | `"Go left"`, `"Alpha move up"`, `"Advance"`, `"Fall back"`, `"Bravo go up and right"` | Walks that way until a wall (max ~9 tiles). If blocked right away, paths around the obstacle. |
+| **Distance** | `"... a bit"` / `"step back"` · `"... all the way"` / `"far"` | Short step (~3 tiles) · go until the wall. |
+| **Stop** | `"Stop"`, `"Halt"`, `"Alpha hold"`, `"Squad hold position"` | Cancels the path immediately. |
+| **Watch / aim** | `"Watch left"`, `"Bravo face up"`, `"Alpha cover mid"`, `"Squad look at the cashier"`, `"Turn right"` | Locks the firing cone toward a direction or callout. Moving keeps the angle. |
+| **Smoke** | `"Smoke"`, `"Smoke mid"`, `"Charlie smoke the buffet"`, `"Smoke left"` | At a callout, in a direction, or 160px ahead (server clamps throw range). |
+| **Scan / Suppress / Rush** | `"Scan"`, `"Suppress"` / `"Cover fire"`, `"Rush"` / `"Sprint"` | Cast by the selected (or named) soldier. |
+| **Match flow** | `"Deploy"` (menu), `"Rematch"` / `"Play again"` | Join or vote for a rematch. |
 
 ---
 
-## 🗺️ Tactical Landmarks & Callout Map (ETH Zürich Polymensa)
+## 🗺️ Map Callouts (Fixed Points)
 
-The battlefield is modeled directly after the **ETH Polymensa (Geschoss F)** architectural floor plan, featuring 9 named tactical landmarks rendered directly on screen with cyan badges `[NAME]`:
+Every callout is drawn on the map as a labelled badge, and **the label is exactly what you say**. Your own half is blue. The **enemy twins** on the far half are red and are addressed with `enemy` / `their`: `"enemy kitchen"`, `"their tables"`.
 
 ```
-+---------------------------------------------------------------------------------+
-|                                    [KÜCHE]                                      |
-|                        (Kitchen & Food Prep Corridor)                           |
-|                                                                                 |
-|       [CHOKE]                                                   [ENEMY CHOKE]   |
-|   (Kitchen Door)                                                                |
-|                                                                                 |
-|                    [PILLAR]                                                     |
-|                    (Column)                                                     |
-|                                                                                 |
-| [ZUGANG]   [TRAYS]                 [BUFFET]                            [AUSGANG]|
-| (Entrance) (Tablett)         (Salad Bar / Mid)                          (Exit)  |
-|                                                                                 |
-|       [KASSE]                                                   [ENEMY KASSE]   |
-|     (Cashiers)                                                                  |
-|                                                                                 |
-|                                   [TABLES]                                      |
-|                       (Polyterrasse Dining Hall)                                |
-+---------------------------------------------------------------------------------+
++------------------------------------------------------------------------+
+|                              [TOP LANE]                                |
+|        [KITCHEN]                                    [ENEMY TABLES]     |
+|                                                                        |
+|        [BUFFET]                                     [ENEMY CASHIER]    |
+| [BASE]                         [MID]                       [ENEMY BASE]|
+|                [CASHIER]                            [ENEMY BUFFET]     |
+|                                                                        |
+|        [TABLES]                                     [ENEMY KITCHEN]    |
+|                             [BOTTOM LANE]                             |
++------------------------------------------------------------------------+
+            (you)                                  (opponent)
 ```
 
-### Callout Descriptions & Spoken Synonyms
-- **`[ZUGANG]` / Base**: West entrance lobby (`"Base"`, `"Zugang"`, `"Entrance"`).
-- **`[TRAYS]` / Yard**: Free-Flow tray dispensers (`"Trays"`, `"Tablett"`, `"Yard"`).
-- **`[CHOKE]` / Kitchen Door**: Doorway into the northern kitchen (`"Choke"`, `"Kitchen door"`).
-- **`[KASSE]` / Flank**: Register checkouts dividing servery from dining (`"Kasse"`, `"Cashier"`, `"Flank"`).
-- **`[PILLAR]`**: Concrete structural column providing heavy cover (`"Pillar"`, `"Column"`).
-- **`[BUFFET]` / Mid**: The central salad bar and warm buffet islands (`"Buffet"`, `"Salad"`, `"Mid"`).
-- **`[KÜCHE]` / North**: Upper kitchen corridor ideal for long-range Rifle duels (`"Küche"`, `"Kitchen"`, `"North"`).
-- **`[TABLES]` / South**: Great Polyterrasse dining hall with wooden table booths (`"Tables"`, `"Dining"`, `"South"`).
-- **`[AUSGANG]` / Enemy**: East exit lobby and opponent spawn (`"Ausgang"`, `"Exit"`, `"Enemy base"`).
+| Callout | Also understood as |
+|---|---|
+| `BASE` | home, spawn, entrance, zugang |
+| `KITCHEN` | kitchen door, prep, choke |
+| `BUFFET` | grill, trays, yard |
+| `CASHIER` | checkout, register, kasse, flank |
+| `TABLES` | table, dining, dining hall |
+| `MID` | middle, center, salad, salad bar |
+| `TOP LANE` | upper lane, corridor, hallway |
+| `BOTTOM LANE` | lower lane, terrace, window(s) |
+| `ENEMY BASE` | enemy, exit, ausgang, enemy spawn |
+
+The map is point-mirrored and Red's camera is rotated 180°, so **every callout sits at the same spot on both players' screens**: your base is always on the left.
 
 ---
 
-## 🧭 Perspective & Directional System
+## 🧭 Directions
 
-In *Tactical Squad Duel*, the map is **point-mirrored** ($180^\circ$ rotational symmetry):
-- **Blue Team (Player 1)** defends on the left and attacks to the right.
-- **Red Team (Player 2)** has their camera rotated $180^\circ$ so they **also** defend on the left and attack to the right on their screen!
+Directions are **screen-relative** and mean the same thing for both teams:
 
-### How Voice Commands Adapt:
-- **"North" / "Up"**: Always means **UP** on your screen (towards the top corridor).
-- **"South" / "Down"**: Always means **DOWN** on your screen (towards the bottom corridor).
-- **"East" / "Advance" / "Forward"**: Always means **FORWARD towards the enemy**.
-- **"West" / "Fall back" / "Retreat"**: Always means **BACK towards your home base**.
-- **"Base"**: Always means **YOUR spawn**, regardless of which team you are on.
-- **"Enemy"**: Always means the **OPPONENT'S spawn**.
+| Say | Direction on your screen |
+|---|---|
+| `up`, `north`, `top` | ↑ |
+| `down`, `south`, `bottom` | ↓ |
+| `right`, `east`, `forward`, `advance`, `push`, `ahead` | → toward the enemy |
+| `left`, `west`, `back`, `fall back`, `retreat` | ← toward your base |
+| `up right`, `northeast`, `down and left`, ... | diagonals |
 
 ---
 
-## 🎧 HUD & Audio Feedback
+## 🎧 Feedback: What You See
 
-The user interface keeps you informed of speech recognition in real time:
+**Voice panel (bottom-right of the battlefield)**, visible while the mic is on:
+- Header: mic state (`LISTENING`, or `HEARING YOU` with animated level bars while you speak).
+- **Live line** (yellow): the words being recognised right now, as you say them.
+- **History**: your last 3 utterances, each with the orders they produced (`> BRAVO MOVE > KITCHEN  +  BRAVO WATCH RIGHT`) or `not a command`. Entries fade after ~9s.
+- When idle it cycles example phrases. If the mic is blocked, it tells you how to fix it.
 
-```
-+-----------------------------------------------------------------------------------------+
-| Blue (you)               Voice: "Alpha to Mid" · "Watch North" · "Squad Rush"           |
-|                                                                                         |
-|                                     [BATTLEFIELD]                                       |
-|                                                                                         |
-| [1 Alpha]   [2 Bravo]   [3 Charlie]     [Q Smoke] [E Scan] [R Supp] [F Rush]  (o) Voice |
-|   Rifle       SMG        Shotgun                                              heard: "" |
-+-----------------------------------------------------------------------------------------+
-```
+**On the map**
+- A green ping marks every voice order (the destination, the watched callout, or the smoke target), with the callout name.
+- Dashed lines show where each soldier is walking, not just the selected one.
 
-1. **Microphone Indicator**:
-   - 🟢 **Pulsing Green Circle**: Microphone is actively listening for your voice.
-   - 🟡 **Yellow Circle**: Voice system is initializing or connecting.
-   - ⚫ **Grey Circle**: Voice is disabled (press `V` to turn on).
-2. **Transcript Feed**:
-   - `heard: "alpha to mid"` displays the raw speech transcribed by the browser.
-3. **Radio Chirp SFX**:
-   - Every valid command triggers a crisp military comms sound.
-4. **Combat Notification Banner**:
-   - The top banner flashes confirmed orders:
-     - `🎙️ [ALPHA] Move -> MID`
-     - `🎙️ [SQUAD] RUSH`
-     - `🎙️ [BRAVO] Watch NORTH`
+**Bottom bar**: mic status, a **Mic ON/OFF** button, and the enemies-alive counter. A radio chirp plays for every recognised order.
 
 ---
 
-## 💡 Tips for Reliable Voice Recognition
+## 💡 Tips for Reliable Recognition
 
-1. **Quiet Background**: Built-in laptop microphones work best in a relatively quiet room. A headset microphone provides near-100% recognition accuracy.
-2. **Short & Crisp**: Say concise phrases:
-   - *"Alpha to Mid"* is recognized faster than *"Could Alpha please move to the middle area"*.
-3. **Compound Orders**: You can chain thoughts:
-   - *"Alpha"* (pause 0.2s) *"Mid"*
-   - *"Watch North"*
-   - *"Smoke Mid"*
-4. **Squad Formations**: Use squad orders to coordinate:
-   - *"Squad advance to Mid"* sends all 3 soldiers toward the center in a staggered formation.
-   - *"Stop"* halts all movement instantly if you hear gunfire.
+1. Use a headset mic in noisy rooms. Laptop mics also pick up teammates talking.
+2. Short phrases work best: `"Bravo kitchen"` is as good as `"Bravo, please go to the kitchen"`.
+3. Orders fire as soon as your words have been stable for ~0.4s, so you don't have to wait for the browser to finish a sentence. A target-less `"smoke ..."` waits for the end of the sentence so it can pick up the target.
+4. If something is misheard, check the voice panel to see exactly what the browser heard.
 
 ---
 
-## 💻 Developer Guide: Extending Voice Commands
+## 💻 Developer Guide
 
-### 1. Adding New Synonyms or Words
-All voice vocabulary is centrally declared in [`scripts/config.gd`](file:///Users/cyrill/hackathon-game/scripts/config.gd):
+### Vocabulary and callouts
+Everything lives in [`scripts/config.gd`](scripts/config.gd):
+- `VOICE_SUBJECTS`, `VOICE_SUBJECT_NUMBERS`: who.
+- `CALLOUTS`: named map points (`label`, `tile` position from Blue's view, `mirror` for an enemy twin, spoken `words`). Badges, parser and positions all read from this table.
+- `VOICE_DIRECTIONS`, `VOICE_PHRASES` (abilities), `VOICE_ACTIONS` (watch / halt / next / distance / deploy / rematch).
 
-```gdscript
-const VOICE_CALLOUTS := {
-    "mid": ["mid", "middle", "center", "centre"],
-    "north": ["north", "top", "upper"],
-    "window": ["window", "ledge", "balcony"], # Add custom landmark words here!
-}
-```
+Phrases match on whole words and the **longest phrase wins** (`"kitchen door"` beats `"kitchen"`, `"play again"` beats `"play"`). The test suite checks that every callout sits on open floor.
 
-### 2. Adding Landmark Positions
-Coordinates are defined in [`scripts/map_data.gd`](file:///Users/cyrill/hackathon-game/scripts/map_data.gd):
+### Code map
+- [`scripts/client/voice.gd`](scripts/client/voice.gd): Web Speech bridge, interim/final result handling, transcript history, and the static grammar parser (`parse_utterance`, `parse_voice`).
+- [`scripts/client/client_game.gd`](scripts/client/client_game.gd): `_on_voice_command` turns commands into server RPCs (`c_unit_move`, `c_unit_face`, `c_unit_stop`, `c_ability`), plus direction walking and squad formation.
+- [`scripts/client/hud.gd`](scripts/client/hud.gd): voice panel. [`scripts/client/entity_view.gd`](scripts/client/entity_view.gd): callout badges and voice pings.
 
-```gdscript
-const CALLOUT_POSITIONS := {
-    "mid": Vector2(20.0 * Cfg.TILE, 9.0 * Cfg.TILE),
-    "window": Vector2(15.0 * Cfg.TILE, 3.0 * Cfg.TILE), # Team 0 pixel position
-}
-```
-*Note: `callout_position()` automatically computes `Cfg.WORLD_SIZE - p` for Team 1.*
-
-### 3. Grammar Parsing Logic
-The multi-token grammar recognizer lives in [`scripts/client/voice.gd`](file:///Users/cyrill/hackathon-game/scripts/client/voice.gd):
-- Strips punctuation and normalizes tokens.
-- Extracts `subject`, `action`, and `param`.
-- Emits `command_spoken(cmd)`.
-
-### 4. Running the Voice Unit Tests
-We maintain an automated unit test suite verifying phrase parsing without launching a browser or window:
-
+### Testing without a microphone
 ```bash
+# Parser unit tests (no window)
 godot --headless --path . --script res://tests/test_voice_parser.gd
-```
 
-Output:
+# Native client that "speaks" a list of commands once the match runs
+godot --path . -- --auto --name=Blue "--say=bravo go to kitchen;squad watch right;smoke mid"
 ```
-  [PASS] alpha move to mid            -> type=2 subj=0 param=mid
-  [PASS] bravo go to north            -> type=2 subj=1 param=north
-  [PASS] charlie advance to choke     -> type=2 subj=2 param=choke
-  [PASS] watch north                  -> type=4 subj=-2 param=north
-  [PASS] smoke mid                    -> type=7 subj=-2 param=0
-  ...
-Test results: 27 passed, 0 failed.
+In the browser console you can also simulate the recognizer:
+```js
+tsdVoice.queue.push({key: 'test:1', alts: ['charlie go to tables'], final: true})
 ```
