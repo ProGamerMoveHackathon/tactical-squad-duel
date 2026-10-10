@@ -20,7 +20,8 @@ class Soldier:
 	var facing := 0.0
 	var watch_angle := 0.0
 	var facing_lock := false
-	var hp := Cfg.SOLDIER_HP
+	var hp: float = Cfg.SOLDIER_HP
+	var health_regen_wait := 0.0
 	var alive := true
 	var path := PackedVector2Array()
 	var moving := false
@@ -307,6 +308,7 @@ func _simulate(dt: float) -> void:
 	for s: Soldier in all:
 		if not s.alive:
 			continue
+		_advance_regeneration(s, dt)
 		s.suppress_t = maxf(0.0, s.suppress_t - dt)
 		s.rush_t = maxf(0.0, s.rush_t - dt)
 		_move_soldier(s, dt)
@@ -338,6 +340,13 @@ func _simulate(dt: float) -> void:
 		if s.alive:
 			_shoot(s, dt, smoke_list)
 	_check_victory()
+
+
+func _advance_regeneration(s: Soldier, dt: float) -> void:
+	var regen_delta := maxf(0.0, dt - s.health_regen_wait)
+	s.health_regen_wait = maxf(0.0, s.health_regen_wait - dt)
+	if regen_delta > 0.0 and s.hp < Cfg.SOLDIER_HP:
+		s.hp = minf(Cfg.SOLDIER_HP, s.hp + Cfg.HEALTH_REGEN_RATE * regen_delta)
 
 
 func _move_soldier(s: Soldier, dt: float) -> void:
@@ -450,6 +459,7 @@ func _shoot(s: Soldier, dt: float, smoke_list: Array) -> void:
 
 	if dmg > 0:
 		best.hp -= dmg
+		best.health_regen_wait = Cfg.HEALTH_REGEN_DELAY
 		if best.hp <= 0:
 			best.hp = 0
 			best.alive = false

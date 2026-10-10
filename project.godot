@@ -23,7 +23,7 @@ Net="*res://scripts/net.gd"
 [display]
 
 window/size/viewport_width=1280
-window/size/viewport_height=768
+window/size/viewport_height=812
 window/stretch/mode="canvas_items"
 
 [physics]

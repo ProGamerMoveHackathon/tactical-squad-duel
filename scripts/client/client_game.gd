@@ -67,6 +67,10 @@ var url_edit: LineEdit
 var connect_btn: Button
 var status_label: Label
 var menu_panorama: TextureRect
+var pause_layer: CanvasLayer
+var pause_overlay: ColorRect
+var pause_main_panel: VBoxContainer
+var pause_settings_panel: VBoxContainer
 var voice: Node
 var sfx: Node
 
@@ -82,6 +86,7 @@ func _ready() -> void:
 	_build_world()
 	_build_hud()
 	_build_menu()
+	_build_pause_menu()
 	Net.welcomed.connect(_on_welcome)
 	Net.snapshot_received.connect(_on_snapshot)
 	Net.rejected.connect(_on_rejected)
@@ -124,6 +129,8 @@ func _setup_debug_hooks() -> void:
 				_use_ability(Cfg.Ability.SMOKE, false)
 			if step[0] == 5:
 				_use_ability(Cfg.Ability.SUPPRESS, false))
+	if _query_param("pause") != "":
+		get_tree().create_timer(4.0).timeout.connect(_open_pause)
 
 
 # --------------------------------------------------------------------------
@@ -178,7 +185,7 @@ func _build_hud() -> void:
 	# Block clicks on the bottom bar from reaching the world.
 	var blocker := Control.new()
 	blocker.position = Vector2(0, Cfg.WORLD_SIZE.y)
-	blocker.size = Vector2(Cfg.WORLD_SIZE.x, 64)
+	blocker.size = Vector2(Cfg.WORLD_SIZE.x, Hud.BAR_H)
 	blocker.mouse_filter = Control.MOUSE_FILTER_STOP
 	hud_layer.add_child(blocker)
 	var mic_btn := Button.new()
@@ -208,7 +215,8 @@ func _build_menu() -> void:
 	menu_panorama.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
 	menu_panorama.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	var panorama_ratio := float(menu_panorama.texture.get_width()) / float(menu_panorama.texture.get_height())
-	menu_panorama.size = Vector2(768.0 * panorama_ratio, 768.0)
+	var menu_height: float = get_viewport().get_visible_rect().size.y
+	menu_panorama.size = Vector2(menu_height * panorama_ratio, menu_height)
 	menu_layer.add_child(menu_panorama)
 	var bg := ColorRect.new()
 	bg.color = Color(0.0, 0.025, 0.065, 0.5)
@@ -301,6 +309,190 @@ func _build_menu() -> void:
 	url_edit.text_submitted.connect(func(_t): _on_connect_pressed())
 
 
+func _build_pause_menu() -> void:
+	pause_layer = CanvasLayer.new()
+	pause_layer.layer = 20
+	add_child(pause_layer)
+	pause_overlay = ColorRect.new()
+	pause_overlay.color = Color(0.0, 0.006, 0.018, 0.88)
+	pause_overlay.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	pause_overlay.mouse_filter = Control.MOUSE_FILTER_STOP
+	pause_overlay.visible = false
+	pause_layer.add_child(pause_overlay)
+
+	var center := CenterContainer.new()
+	center.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	pause_overlay.add_child(center)
+	var panel := PanelContainer.new()
+	panel.custom_minimum_size = Vector2(430, 430)
+	var panel_style := StyleBoxFlat.new()
+	panel_style.bg_color = Color(0.018, 0.04, 0.07, 0.98)
+	panel_style.border_color = Color(0.28, 0.82, 1.0, 0.92)
+	panel_style.set_border_width_all(3)
+	panel_style.set_corner_radius_all(12)
+	panel_style.content_margin_left = 34
+	panel_style.content_margin_right = 34
+	panel_style.content_margin_top = 28
+	panel_style.content_margin_bottom = 28
+	panel.add_theme_stylebox_override("panel", panel_style)
+	center.add_child(panel)
+	var menu_content := Control.new()
+	menu_content.custom_minimum_size = Vector2(356, 366)
+	panel.add_child(menu_content)
+
+	pause_main_panel = VBoxContainer.new()
+	pause_main_panel.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	pause_main_panel.add_theme_constant_override("separation", 12)
+	menu_content.add_child(pause_main_panel)
+	var pause_title := Label.new()
+	pause_title.text = "PAUSE MENU"
+	pause_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	pause_title.add_theme_font_size_override("font_size", 32)
+	pause_title.add_theme_color_override("font_color", Color(0.8, 0.95, 1.0))
+	pause_main_panel.add_child(pause_title)
+	var warning := Label.new()
+	warning.text = "ONLINE MATCH CONTINUES WHILE THIS MENU IS OPEN"
+	warning.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	warning.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	warning.add_theme_font_size_override("font_size", 14)
+	warning.add_theme_color_override("font_color", Color(1.0, 0.52, 0.28))
+	pause_main_panel.add_child(warning)
+	var spacer := Control.new()
+	spacer.custom_minimum_size.y = 18
+	pause_main_panel.add_child(spacer)
+	var resume_button := Button.new()
+	resume_button.text = "RESUME"
+	resume_button.custom_minimum_size.y = 54
+	_style_menu_button(resume_button)
+	resume_button.pressed.connect(_close_pause)
+	pause_main_panel.add_child(resume_button)
+	var settings_button := Button.new()
+	settings_button.text = "SETTINGS"
+	settings_button.custom_minimum_size.y = 54
+	_style_menu_button(settings_button)
+	settings_button.pressed.connect(_show_pause_settings)
+	pause_main_panel.add_child(settings_button)
+	var leave_button := Button.new()
+	leave_button.text = "LEAVE GAME"
+	leave_button.custom_minimum_size.y = 54
+	_style_menu_button(leave_button)
+	leave_button.pressed.connect(_leave_match)
+	pause_main_panel.add_child(leave_button)
+
+	pause_settings_panel = VBoxContainer.new()
+	pause_settings_panel.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	pause_settings_panel.add_theme_constant_override("separation", 18)
+	pause_settings_panel.visible = false
+	menu_content.add_child(pause_settings_panel)
+	var settings_title := Label.new()
+	settings_title.text = "SETTINGS"
+	settings_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	settings_title.add_theme_font_size_override("font_size", 32)
+	pause_settings_panel.add_child(settings_title)
+	var volume_label := Label.new()
+	volume_label.text = "MASTER VOLUME"
+	volume_label.add_theme_font_size_override("font_size", 17)
+	pause_settings_panel.add_child(volume_label)
+	var volume_slider := HSlider.new()
+	volume_slider.min_value = -30.0
+	volume_slider.max_value = 0.0
+	volume_slider.step = 1.0
+	volume_slider.value = AudioServer.get_bus_volume_db(AudioServer.get_bus_index("Master"))
+	volume_slider.custom_minimum_size.y = 48
+	volume_slider.value_changed.connect(_set_master_volume)
+	pause_settings_panel.add_child(volume_slider)
+	var hint := Label.new()
+	hint.text = "Adjust game sound effects and alerts. Online play continues in the background."
+	hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	hint.add_theme_color_override("font_color", Color(0.72, 0.82, 0.9))
+	pause_settings_panel.add_child(hint)
+	var settings_spacer := Control.new()
+	settings_spacer.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	pause_settings_panel.add_child(settings_spacer)
+	var back_button := Button.new()
+	back_button.text = "BACK"
+	back_button.custom_minimum_size.y = 54
+	_style_menu_button(back_button)
+	back_button.pressed.connect(_show_pause_main)
+	pause_settings_panel.add_child(back_button)
+
+	var controls_margin := MarginContainer.new()
+	controls_margin.set_anchor(SIDE_LEFT, 1.0)
+	controls_margin.set_anchor(SIDE_RIGHT, 1.0)
+	controls_margin.set_anchor(SIDE_TOP, 0.5)
+	controls_margin.set_anchor(SIDE_BOTTOM, 0.5)
+	controls_margin.offset_left = -300
+	controls_margin.offset_right = -20
+	controls_margin.offset_top = -170
+	controls_margin.offset_bottom = 170
+	pause_overlay.add_child(controls_margin)
+	var controls_panel := PanelContainer.new()
+	var controls_style := StyleBoxFlat.new()
+	controls_style.bg_color = Color(0.018, 0.04, 0.07, 0.96)
+	controls_style.border_color = Color(0.24, 0.62, 0.8, 0.88)
+	controls_style.set_border_width_all(2)
+	controls_style.set_corner_radius_all(10)
+	controls_style.content_margin_left = 20
+	controls_style.content_margin_right = 20
+	controls_style.content_margin_top = 18
+	controls_style.content_margin_bottom = 18
+	controls_panel.add_theme_stylebox_override("panel", controls_style)
+	controls_margin.add_child(controls_panel)
+	var controls := VBoxContainer.new()
+	controls.add_theme_constant_override("separation", 8)
+	controls_panel.add_child(controls)
+	var controls_title := Label.new()
+	controls_title.text = "CONTROLS"
+	controls_title.add_theme_font_size_override("font_size", 20)
+	controls.add_child(controls_title)
+	var help := Label.new()
+	help.text = "1–3: select soldier\nTab: next living soldier\nLeft click: move / select\nRight click: face direction\nQ: smoke · E: scan\nR: suppress · F: rush\nV: voice toggle\nEscape: close menu"
+	help.add_theme_color_override("font_color", Color(0.9, 0.96, 1.0))
+	controls.add_child(help)
+
+
+func _open_pause() -> void:
+	if pause_overlay == null or slot < 0:
+		return
+	pause_overlay.visible = true
+	pause_main_panel.visible = true
+	pause_settings_panel.visible = false
+	sfx.play("voice", -10.0)
+
+
+func _close_pause() -> void:
+	if pause_overlay == null:
+		return
+	pause_overlay.visible = false
+	pause_main_panel.visible = true
+	pause_settings_panel.visible = false
+	sfx.play("voice", -10.0)
+
+
+func _show_pause_settings() -> void:
+	pause_main_panel.visible = false
+	pause_settings_panel.visible = true
+	sfx.play("voice", -10.0)
+
+
+func _show_pause_main() -> void:
+	pause_settings_panel.visible = false
+	pause_main_panel.visible = true
+	sfx.play("voice", -10.0)
+
+
+func _set_master_volume(value: float) -> void:
+	AudioServer.set_bus_volume_db(AudioServer.get_bus_index("Master"), clampf(value, -30.0, 0.0))
+
+
+func _leave_match() -> void:
+	_close_pause()
+	_connected = false
+	slot = -1
+	Net.leave()
+	_show_menu(true, "Left online match.")
+
+
 func _style_menu_field(field: LineEdit) -> void:
 	var normal := StyleBoxFlat.new()
 	normal.bg_color = Color(0.018, 0.055, 0.1, 0.98)
@@ -347,6 +539,8 @@ func _style_menu_button(button: Button) -> void:
 
 
 func _show_menu(show: bool, status: String) -> void:
+	if show and pause_overlay != null:
+		pause_overlay.visible = false
 	menu_layer.visible = show
 	world.visible = not show
 	hud_layer.visible = not show
@@ -564,7 +758,7 @@ func smoke_list() -> Array:
 func _process(dt: float) -> void:
 	time += dt
 	if menu_layer != null and menu_layer.visible and menu_panorama != null:
-		var travel := maxf(0.0, menu_panorama.size.x - 1280.0)
+		var travel := maxf(0.0, menu_panorama.size.x - get_viewport().get_visible_rect().size.x)
 		var flythrough := 0.5 - 0.5 * cos(time * 0.15)
 		menu_panorama.position = Vector2(-travel * flythrough, sin(time * 0.21) * 8.0)
 	var k := 1.0 - exp(-18.0 * dt)
@@ -585,7 +779,7 @@ func _process(dt: float) -> void:
 	if vision_mask:
 		vision_mask.reveal_all = state == Cfg.State.ENDED
 	# Continuous right-drag facing
-	if slot >= 0 and Input.is_mouse_button_pressed(MOUSE_BUTTON_RIGHT) and not menu_layer.visible:
+	if slot >= 0 and Input.is_mouse_button_pressed(MOUSE_BUTTON_RIGHT) and not menu_layer.visible and not pause_overlay.visible:
 		_face_send_t -= dt
 		if _face_send_t <= 0.0:
 			_face_send_t = 0.05
@@ -604,7 +798,20 @@ func _tick_list(list: Array, dt: float) -> void:
 # --------------------------------------------------------------------------
 
 func _unhandled_input(event: InputEvent) -> void:
+	if event is InputEventKey and event.pressed and not event.echo \
+			and (event.keycode == KEY_ESCAPE or event.physical_keycode == KEY_ESCAPE):
+		if slot >= 0 and not menu_layer.visible:
+			if pause_overlay.visible and pause_settings_panel.visible:
+				_show_pause_main()
+			elif pause_overlay.visible:
+				_close_pause()
+			else:
+				_open_pause()
+			get_viewport().set_input_as_handled()
+		return
 	if slot < 0 or menu_layer.visible or not Net.is_online():
+		return
+	if pause_overlay.visible:
 		return
 	if event is InputEventMouseButton and event.pressed:
 		var mp := world.get_local_mouse_position()

@@ -14,6 +14,8 @@ const WORLD_SIZE := Vector2(MAP_W * TILE, MAP_H * TILE)
 # --- Soldiers -------------------------------------------------------------
 const SOLDIER_RADIUS := 11.0
 const SOLDIER_HP := 100
+const HEALTH_REGEN_DELAY := 10.0
+const HEALTH_REGEN_RATE := 5.0
 const MOVE_SPEED := 120.0              # px / s
 const TURN_SPEED := deg_to_rad(540.0)  # rad / s
 ## If true, a soldier that was moving keeps walking to its destination after the
