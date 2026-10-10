@@ -4,6 +4,7 @@
 
 # Build artifacts (rebuilt on demand via ./export_web.sh or ./run_local.sh)
 /build/
+/build-old/
 
 # OS & Editor temporary files
 .DS_Store
