@@ -24,6 +24,7 @@ class Soldier:
 	var facing := 0.0
 	var watch_angle := 0.0
 	var facing_lock := false
+	var voice_turn := false  # last order came by voice: turn at VOICE_TURN_SPEED
 	var hp: float = Cfg.SOLDIER_HP
 	var mp: float = Cfg.SOLDIER_MP
 	var health_regen_wait := 0.0
@@ -275,17 +276,17 @@ func _order_face(s: Soldier, target: Vector2) -> void:
 func on_move(id: int, target: Vector2, keep_facing: bool) -> void:
 	var slot := _slot_of(id)
 	if slot != -1:
-		_order_move(_selected_soldier(slot), target, keep_facing)
+		_order_move(_set_voice_turn(_selected_soldier(slot), false), target, keep_facing)
 
 
 func on_face(id: int, target: Vector2) -> void:
 	var slot := _slot_of(id)
 	if slot != -1:
-		_order_face(_selected_soldier(slot), target)
+		_order_face(_set_voice_turn(_selected_soldier(slot), false), target)
 
 
 func on_unit_move(id: int, idx: int, target: Vector2, queue: bool) -> void:
-	var s := _unit(_slot_of(id), idx)
+	var s := _set_voice_turn(_unit(_slot_of(id), idx), true)
 	if queue and s != null and not s.path.is_empty() and state == Cfg.State.PLAYING and _valid_vec(target):
 		s.path.append_array(map.find_path(s.path[s.path.size() - 1], target))
 		return
@@ -293,7 +294,18 @@ func on_unit_move(id: int, idx: int, target: Vector2, queue: bool) -> void:
 
 
 func on_unit_face(id: int, idx: int, target: Vector2) -> void:
-	_order_face(_unit(_slot_of(id), idx), target)
+	_order_face(_set_voice_turn(_unit(_slot_of(id), idx), true), target)
+
+
+## Unit-addressed orders come from voice; mouse orders go to the selected soldier.
+func _set_voice_turn(s: Soldier, voice: bool) -> Soldier:
+	if s != null:
+		s.voice_turn = voice
+	return s
+
+
+func _turn_speed(s: Soldier) -> float:
+	return Cfg.VOICE_TURN_SPEED if s.voice_turn else Cfg.TURN_SPEED
 
 
 func on_unit_stop(id: int, idx: int) -> void:
@@ -303,8 +315,24 @@ func on_unit_stop(id: int, idx: int) -> void:
 
 
 func on_ability(id: int, ability: int, target: Vector2, via_voice: bool) -> void:
-	var slot := _slot_of(id)
-	if slot == -1 or not Cfg.ABILITIES.has(ability) or not _valid_vec(target):
+	if _valid_vec(target):
+		_cast_ability(_slot_of(id), ability, func(_s: Soldier) -> Vector2: return target, via_voice)
+
+
+## Voice casts: every caster aims from its own position, along the world
+## direction `dir` or, if it is zero, the way that caster is facing.
+func on_ability_dir(id: int, ability: int, dir: Vector2) -> void:
+	if not is_finite(dir.x) or not is_finite(dir.y):
+		return
+	_cast_ability(_slot_of(id), ability, func(s: Soldier) -> Vector2:
+		var d := dir.normalized() if dir.length() > 0.01 else Vector2.from_angle(s.facing)
+		return s.pos + d * Cfg.VOICE_CAST_DISTANCE, true)
+
+
+## Every living squad member with the ability equipped and enough MP casts it.
+## target_of(soldier) gives each caster's aim point (only Fireball aims).
+func _cast_ability(slot: int, ability: int, target_of: Callable, via_voice: bool) -> void:
+	if slot == -1 or not Cfg.ABILITIES.has(ability):
 		return
 	var def: Dictionary = Cfg.ABILITIES[ability]
 	if state != Cfg.State.PLAYING:
@@ -363,7 +391,7 @@ func on_ability(id: int, ability: int, target: Vector2, via_voice: bool) -> void
 					_start_dash(s, Vector2.from_angle(s.facing), float(def["dash_distance"]), float(def["dash_duration"]), false)
 		Cfg.Ability.FIREBALL:
 			for s: Soldier in casters:
-				var center := _ability_target(s, target, float(def["cast_range"]))
+				var center := _ability_target(s, target_of.call(s), float(def["cast_range"]))
 				_cast_fireball(s, center, def)
 		Cfg.Ability.INVISIBLE:
 			for s: Soldier in casters:
@@ -534,6 +562,8 @@ func _physics_process(dt: float) -> void:
 					for s: Soldier in squads[team]:
 						s.pos = map.spawn_position(team, s.idx)
 						s.path.clear()
+						s.facing = map.spawn_facing(team)
+						s.watch_angle = s.facing
 				state = Cfg.State.COUNTDOWN
 				countdown = Cfg.COUNTDOWN
 				for t in 2:
@@ -562,7 +592,7 @@ func _update_facing_only(dt: float) -> void:
 	for team in 2:
 		for s in squads[team]:
 			if s.facing_lock:
-				s.facing = rotate_toward(s.facing, s.watch_angle, Cfg.TURN_SPEED * dt)
+				s.facing = rotate_toward(s.facing, s.watch_angle, _turn_speed(s) * dt)
 
 
 func _simulate(dt: float) -> void:
@@ -666,7 +696,7 @@ func _move_soldier(s: Soldier, dt: float) -> void:
 			s.pos += diff / dist * step
 		s.moving = true
 		s.last_moved = time
-	s.facing = rotate_toward(s.facing, desired, Cfg.TURN_SPEED * dt)
+	s.facing = rotate_toward(s.facing, desired, _turn_speed(s) * dt)
 
 
 func _compute_visibility() -> void:

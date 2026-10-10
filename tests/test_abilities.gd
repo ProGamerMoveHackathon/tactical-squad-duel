@@ -89,6 +89,37 @@ func _ready() -> void:
 	game._apply_damage(game.squads[0][0], game.squads[1][1], 1)
 	_check(game.squads[0][0].invisible_t == 0.0, "Dealing damage cancels invisibility")
 
+	# Voice cast: every ready member with the spell casts, each aiming from itself.
+	game._reset_squads()
+	game.state = Cfg.State.PLAYING
+	var fireball_bit := 1 << Cfg.Ability.FIREBALL
+	game.loadouts[0] = [fireball_bit, 1 << Cfg.Ability.SCAN, fireball_bit, fireball_bit]
+	game.squads[0][3].mp = 10.0
+	for team in 2:
+		game.events[team].clear()
+	game.on_ability_dir(101, Cfg.Ability.FIREBALL, Vector2.ZERO)
+	var blasts: Array = game.events[0].filter(func(ev): return ev[0] == "fireball")
+	var squad = game.squads[0]
+	var ahead_of := func(s) -> bool:
+		return blasts.any(func(ev): return absf(ev[1].y - s.pos.y) < 1.0 and ev[1].x > s.pos.x + 32.0)
+	_check(blasts.size() == 2 and ahead_of.call(squad[0]) and ahead_of.call(squad[2]),
+		"Voice Fireball: each equipped caster blasts straight ahead of itself")
+	_check(squad[0].mp < Cfg.SOLDIER_MP and squad[2].mp < Cfg.SOLDIER_MP and squad[1].mp == Cfg.SOLDIER_MP \
+		and squad[3].mp == 10.0, "Voice Fireball: only equipped members with enough MP pay")
+
+	# Voice turns are slower than mouse turns so spoken turns stay visible.
+	var turner = game.squads[0][1]
+	turner.facing = 0.0
+	game.on_unit_face(101, 1, turner.pos + Vector2.from_angle(deg_to_rad(120.0)) * 100.0)
+	game._update_facing_only(0.1)
+	var voice_step := rad_to_deg(turner.facing)
+	turner.facing = 0.0
+	game.selected[0] = 1
+	game.on_face(101, turner.pos + Vector2.from_angle(deg_to_rad(120.0)) * 100.0)
+	game._update_facing_only(0.1)
+	_check(is_equal_approx(voice_step, 30.0) and is_equal_approx(rad_to_deg(turner.facing), 54.0),
+		"Voice turns rotate at 300 deg/s, mouse turns at 540 deg/s")
+
 	print("\nAbility test results: %d failed." % failed)
 	game.free()
 	get_tree().quit(1 if failed > 0 else 0)

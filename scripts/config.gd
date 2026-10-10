@@ -21,6 +21,7 @@ const HEALTH_REGEN_DELAY := 10.0
 const HEALTH_REGEN_RATE := 5.0
 const MOVE_SPEED := 120.0              # px / s
 const TURN_SPEED := deg_to_rad(540.0)  # rad / s
+const VOICE_TURN_SPEED := deg_to_rad(300.0)  # after a voice order, so spoken turns are visible
 ## If true, a soldier that was moving keeps walking to its destination after the
 ## player switches to another soldier. If false it stops immediately.
 const CONTINUE_MOVE_WHEN_DESELECTED := true
@@ -61,15 +62,27 @@ const ABILITY_SLOT_KEYS := ["W", "E", "R"]
 ## Spoken phrases that trigger each ability (lower-case, matched as whole words /
 ## word sequences). Includes a few common speech-recognition mishearings.
 const VOICE_PHRASES := {
-	Ability.FOG: ["fog", "fog magic", "cast fog", "summon fog", "mist", "cast mist"],
-	Ability.SCAN: ["scan", "scans", "scanning", "scanner", "radar", "ping", "sonar", "pulse"],
+	Ability.FOG: ["fog", "fog magic", "cast fog", "summon fog", "mist", "cast mist", "smoke", "frog", "fogg"],
+	Ability.SCAN: ["scan", "scans", "scanning", "scanner", "radar", "ping", "sonar", "pulse", "scam"],
 	Ability.RUSH: ["rush", "rushing", "russia", "brush", "sprint", "dash", "boost", "go go"],
-	Ability.OUTRAGE: ["outrage", "rage", "enrage", "fury"],
-	Ability.FLASH: ["flash", "blink", "flash forward"],
-	Ability.BREAK_MAGIC: ["break magic", "stick mode", "wand mode", "switch weapon"],
-	Ability.FIREBALL: ["fireball", "fire ball", "cast fireball"],
-	Ability.INVISIBLE: ["invisible", "invisibility", "vanish", "cloak"],
+	Ability.OUTRAGE: ["outrage", "rage", "enrage", "fury", "berserk"],
+	Ability.FLASH: ["flash", "blink", "flash forward", "flesh", "teleport"],
+	# Chrome's profanity filter delivers "f***", which normalizes to "f".
+	Ability.BREAK_MAGIC: ["break magic", "f magic", "fuck magic", "fucking magic", "freaking magic", "frick magic",
+		"stick mode", "wand mode", "switch weapon"],
+	Ability.FIREBALL: ["fireball", "fire ball", "fireballs", "fire bowl", "cast fireball"],
+	Ability.INVISIBLE: ["invisible", "invisibility", "vanish", "cloak", "stealth"],
 }
+## How far ahead of each caster a voice-cast Fireball is aimed (clamped to cast_range).
+const VOICE_CAST_DISTANCE := 180.0
+## Equipped spell slots in W / E / R order: noun + number / key ("spell two",
+## "cast E") or ordinal before or after the noun ("second spell", "spell third").
+const VOICE_SPELL_NOUNS := ["spell", "ability", "skill", "slot", "cast", "use"]
+const VOICE_SPELL_SLOTS := [
+	{"ordinal": ["first"], "number": ["one", "1", "won", "w", "double u", "double you"]},
+	{"ordinal": ["second"], "number": ["two", "2", "to", "too", "e"]},
+	{"ordinal": ["third"], "number": ["three", "3", "tree", "r"]},
+]
 
 # --- Voice command vocabulary ------------------------------------------------
 # Grammar: [who] [action] [where]. Every list is matched on whole words and the
@@ -91,40 +104,15 @@ const VOICE_SUBJECT_NUMBERS := {
 	3: ["four", "4", "fourth"],
 }
 
-## Named map points. `tile` is in tiles from Blue's point of view; Red gets the
-## point-mirrored spot, so every callout sits at the same place on both players'
-## screens. `mirror` callouts also get an "enemy <name>" twin on the far half.
-## The label is drawn on the map and is exactly what the player should say.
-const CALLOUTS := {
-	"base": {"label": "BASE", "tile": Vector2(3.5, 11.0), "mirror": true,
-		"words": ["base", "bass", "home", "spawn", "entrance", "zugang"]},
-	"kitchen": {"label": "KITCHEN", "tile": Vector2(9.5, 5.5), "mirror": true,
-		"words": ["kitchen", "kitchen door", "prep", "choke"]},
-	"buffet": {"label": "BUFFET", "tile": Vector2(9.5, 9.5), "mirror": true,
-		"words": ["buffet", "buffets", "grill", "trays", "tray", "yard"]},
-	"cashier": {"label": "CASHIER", "tile": Vector2(14.0, 12.5), "mirror": true,
-		"words": ["cashier", "cashiers", "checkout", "register", "kasse", "kassa", "flank"]},
-	"tables": {"label": "TABLES", "tile": Vector2(9.5, 16.5), "mirror": true,
-		"words": ["tables", "table", "dining", "dining hall"]},
-	"mid": {"label": "MID", "tile": Vector2(20.0, 11.0), "mirror": false,
-		"words": ["mid", "middle", "center", "centre", "salad", "salad bar"]},
-	"top_lane": {"label": "TOP LANE", "tile": Vector2(20.0, 1.5), "mirror": false,
-		"words": ["top lane", "toplane", "upper lane", "corridor", "hallway"]},
-	"bottom_lane": {"label": "BOTTOM LANE", "tile": Vector2(20.0, 19.5), "mirror": false,
-		"words": ["bottom lane", "lower lane", "terrace", "window", "windows"]},
-}
-## "enemy kitchen", "their tables", ... address the mirrored twin of a callout.
-const VOICE_ENEMY_PREFIXES := ["enemy", "enemies", "their", "opponent", "opponents"]
-## Extra ways to say the enemy spawn (the twin of "base").
-const VOICE_ENEMY_BASE_WORDS := ["enemy", "exit", "ausgang", "enemy spawn"]
-
 ## Screen-relative directions (x = right / towards the enemy, y = down).
 ## Both players see their base on the left, so these mean the same for both teams.
+## On their own, "left" / "right" steer the soldier (VOICE_STEER); they only mean
+## the screen sides next to another compass word ("up and right") or for watching.
 const VOICE_DIRECTIONS := {
 	"n": ["north", "up", "upward", "upwards", "top", "upper"],
 	"s": ["south", "down", "downward", "downwards", "bottom", "lower"],
-	"e": ["east", "right", "forward", "forwards", "ahead", "advance", "push", "front", "onward"],
-	"w": ["west", "left", "back", "backward", "backwards", "retreat", "fall back", "rear", "behind"],
+	"e": ["east", "right"],
+	"w": ["west", "left"],
 	"ne": ["northeast"],
 	"nw": ["northwest"],
 	"se": ["southeast"],
@@ -139,8 +127,31 @@ const VOICE_STEP := 288.0
 const VOICE_STEP_SHORT := 96.0
 const VOICE_STEP_FAR := 2000.0
 
+## Steering relative to where the soldier is facing, for driving soldiers across
+## a big map: "alpha forward", "alpha left 30", "bravo back 5", "turn around".
+## Forward / backward walk until a wall (or N tiles), a turn without a number is
+## 90 degrees, and a turn while walking bends the walk.
+const VOICE_STEER := {
+	"forward": ["forward", "forwards", "ahead", "advance", "push", "front", "onward", "straight", "go straight",
+		"keep going", "go on", "continue", "carry on"],
+	"backward": ["backward", "backwards", "back", "back up", "reverse", "retreat", "fall back", "rear", "behind"],
+	"left": ["left"],
+	"right": ["right"],
+	"around": ["turn around", "about face", "u turn", "one eighty", "180"],
+	"go": ["go", "move", "walk", "run", "head"],
+}
+const VOICE_TURN_DEFAULT := 90.0
+const VOICE_TURN_SHORT := 30.0
+const VOICE_NUMBER_WORDS := {
+	"zero": 0, "one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7, "eight": 8,
+	"nine": 9, "ten": 10, "eleven": 11, "twelve": 12, "thirteen": 13, "fourteen": 14, "fifteen": 15,
+	"sixteen": 16, "seventeen": 17, "eighteen": 18, "nineteen": 19, "twenty": 20, "thirty": 30,
+	"forty": 40, "fourty": 40, "fifty": 50, "sixty": 60, "seventy": 70, "eighty": 80, "ninety": 90,
+	"hundred": 100,
+}
+
 const VOICE_ACTIONS := {
-	"watch": ["watch", "look", "face", "aim", "cover", "check", "guard", "eyes on", "point", "turn"],
+	"watch": ["watch", "look", "face", "aim", "cover", "check", "guard", "eyes on", "point"],
 	"halt": ["stop", "halt", "hold", "hold position", "freeze", "stay", "wait", "stand still", "cancel"],
 	"next": ["next", "cycle", "switch"],
 	"select": ["select", "switch to", "unit", "soldier", "number"],

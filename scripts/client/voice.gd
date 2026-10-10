@@ -9,7 +9,6 @@ extends Node
 ## command fires at most once per result.
 
 const Cfg = preload("res://scripts/config.gd")
-const MapData = preload("res://scripts/map_data.gd")
 
 signal command_spoken(cmd: Dictionary)
 signal status_changed(status: String)
@@ -17,15 +16,14 @@ signal status_changed(status: String)
 enum CmdType {
 	NONE,
 	SELECT,
-	MOVE_CALLOUT,
 	MOVE_DIR,
 	WATCH_DIR,
-	WATCH_CALLOUT,
 	HALT,
 	ABILITY,
 	DEPLOY,
 	REMATCH,
 	SELECT_NEXT,
+	STEER,
 }
 
 const INTERIM_STABLE_S := 0.4
@@ -224,6 +222,9 @@ var interim_text := ""
 ## An entry without tags was heard but not understood.
 var history := []
 var last_action := ""
+## func(subject: int, slot: int) -> ability id or -1. Turns "spell two" into the
+## ability equipped in that slot; set by the game, which knows the loadouts.
+var spell_resolver := Callable()
 
 var _results := {}  # result key -> {alts, final, changed, done, sigs}
 var _clock := 0.0
@@ -349,6 +350,10 @@ func _evaluate_results() -> void:
 func _act(key: String, r: Dictionary) -> void:
 	var cmds := best_parse(r["alts"])
 	for cmd in cmds:
+		if cmd.get("type") == CmdType.ABILITY and cmd["ability"] < 0:
+			cmd["ability"] = spell_resolver.call(cmd["subject"], cmd["slot"]) if spell_resolver.is_valid() else -1
+			if cmd["ability"] < 0:
+				continue
 		if not r["final"] and not is_complete(cmd):
 			continue
 		var sig := command_signature(cmd)
@@ -376,18 +381,24 @@ func _history_entry(key: String, text: String) -> Dictionary:
 # Command helpers
 # --------------------------------------------------------------------------
 
-## Commands that are safe to run from interim text. A fireball without a target
-## waits for the final result, because "fireball ... kitchen" is still coming.
+## Commands that are safe to run from interim text. A fireball without a direction
+## waits for the final result, in case a direction is still coming.
 static func is_complete(cmd: Dictionary) -> bool:
 	if cmd.get("type") == CmdType.ABILITY and cmd.get("ability") == Cfg.Ability.FIREBALL:
-		return cmd.get("target", "") != "" or cmd.get("dir", Vector2.ZERO) != Vector2.ZERO
+		return cmd.get("dir", Vector2.ZERO) != Vector2.ZERO
+	# Turns add up, so "left" must not fire before a possible "... 30" arrives.
+	if cmd.get("type") == CmdType.STEER and cmd["turn"] != 0.0:
+		return cmd["exact"]
 	return true
 
 
 static func command_signature(cmd: Dictionary) -> String:
 	if cmd.get("type") == CmdType.ABILITY:
 		return "ability:%d" % cmd["ability"]  # cooldowns are per team: once per utterance
-	return "%d:%d:%s:%s" % [cmd.get("type", 0), cmd.get("subject", -2), str(cmd.get("param", "")), str(cmd.get("dist", ""))]
+	var step: int = cmd.get("step", 0)
+	if cmd.get("type") == CmdType.STEER:
+		return "steer:%d:%d:%d:%d:%s:%d" % [cmd["subject"], cmd["move"], cmd["turn"], cmd["tiles"], cmd["dist"], step]
+	return "%d:%d:%s:%s:%d" % [cmd.get("type", 0), cmd.get("subject", -2), str(cmd.get("param", "")), str(cmd.get("dist", "")), step]
 
 
 static func direction_label(dir: Vector2) -> String:
@@ -407,24 +418,34 @@ static func format_action_tag(cmd: Dictionary) -> String:
 			return "SELECT " + who
 		CmdType.SELECT_NEXT:
 			return "NEXT SOLDIER"
-		CmdType.MOVE_CALLOUT:
-			return pre + "MOVE > " + MapData.callout_label(cmd["param"])
 		CmdType.MOVE_DIR:
 			var extra: String = {"short": " (BIT)", "far": " (FAR)"}.get(cmd.get("dist", ""), "")
 			return pre + "MOVE " + str(cmd["param"]) + extra
 		CmdType.WATCH_DIR:
 			return pre + "WATCH " + str(cmd["param"])
-		CmdType.WATCH_CALLOUT:
-			return pre + "WATCH " + MapData.callout_label(cmd["param"])
 		CmdType.HALT:
 			return pre + "STOP"
 		CmdType.ABILITY:
-			var tag: String = pre + str(Cfg.ABILITIES[cmd["ability"]]["name"]).to_upper()
-			if cmd.get("target", "") != "":
-				tag += " > " + MapData.callout_label(cmd["target"])
-			elif cmd.get("dir", Vector2.ZERO) != Vector2.ZERO:
+			# Cast by every ready squad member, whoever was named.
+			var tag: String = "SQUAD " + (str(Cfg.ABILITIES[cmd["ability"]]["name"]).to_upper() if cmd["ability"] >= 0 \
+				else "SPELL " + Cfg.ABILITY_SLOT_KEYS[cmd["slot"]])
+			if cmd.get("dir", Vector2.ZERO) != Vector2.ZERO:
 				tag += " " + direction_label(cmd["dir"])
 			return tag
+		CmdType.STEER:
+			var parts := []
+			if is_equal_approx(absf(cmd["turn"]), 180.0):
+				parts.append("TURN AROUND")
+			elif cmd["turn"] != 0.0:
+				parts.append("%s %d" % ["RIGHT" if cmd["turn"] > 0.0 else "LEFT", absf(cmd["turn"])])
+			if cmd["move"] != 0:
+				var walk: String = "FORWARD" if cmd["move"] > 0 else "BACK"
+				if cmd["tiles"] > 0:
+					walk += " %d" % cmd["tiles"]
+				elif cmd["dist"] == "short":
+					walk += " (BIT)"
+				parts.append(walk)
+			return pre + " + ".join(parts)
 		CmdType.DEPLOY:
 			return "DEPLOY"
 		CmdType.REMATCH:
@@ -451,26 +472,30 @@ static func _sorted(map: Dictionary) -> Array:
 
 static func _phrases(name: String) -> Array:
 	if _vocab.is_empty():
-		var callouts := {}
-		for id in Cfg.CALLOUTS:
-			var words: Array = Cfg.CALLOUTS[id]["words"]
-			callouts[id] = words
-			if Cfg.CALLOUTS[id]["mirror"]:
-				var twin := []
-				for p in Cfg.VOICE_ENEMY_PREFIXES:
-					for w in words:
-						twin.append(p + " " + w)
-				callouts["enemy_" + id] = twin
-		callouts["enemy_base"] = callouts["enemy_base"] + Cfg.VOICE_ENEMY_BASE_WORDS
+		var spell_slots := {}
+		for k in Cfg.VOICE_SPELL_SLOTS.size():
+			var words: Dictionary = Cfg.VOICE_SPELL_SLOTS[k]
+			spell_slots[k] = []
+			for noun in Cfg.VOICE_SPELL_NOUNS:
+				for w in words["number"] + words["ordinal"]:
+					spell_slots[k].append(noun + " " + w)
+				for w in words["ordinal"]:
+					spell_slots[k].append(w + " " + noun)
 		_vocab = {
+			"spell_slots": _sorted(spell_slots),
 			"subjects": _sorted(Cfg.VOICE_SUBJECTS),
 			"numbers": _sorted(Cfg.VOICE_SUBJECT_NUMBERS),
-			"callouts": _sorted(callouts),
 			"directions": _sorted(Cfg.VOICE_DIRECTIONS),
 			"abilities": _sorted(Cfg.VOICE_PHRASES),
 		}
 		for key in Cfg.VOICE_ACTIONS:
 			_vocab[key] = _sorted({key: Cfg.VOICE_ACTIONS[key]})
+		for key in Cfg.VOICE_STEER:
+			_vocab["steer_" + key] = _sorted({key: Cfg.VOICE_STEER[key]})
+		var compass := {}
+		for id in Cfg.VOICE_DIRECTIONS:
+			compass[id] = Cfg.VOICE_DIRECTIONS[id].filter(func(w): return not w in Cfg.VOICE_STEER["left"] + Cfg.VOICE_STEER["right"])
+		_vocab["compass"] = _sorted(compass)
 	return _vocab[name]
 
 
@@ -487,15 +512,15 @@ static func _cut(text: String, hit: Array) -> String:
 	return text.substr(0, hit[1]) + text.substr(hit[1] + hit[2].length() + 1)
 
 
-## Lower-case, letters/digits only, padded with spaces: " alpha go to kitchen ".
+## Lower-case, letters/digits only, padded with spaces.
 static func normalize(raw: String) -> String:
 	var out := ""
 	for c in raw.to_lower():
 		out += c if (c >= "a" and c <= "z") or (c >= "0" and c <= "9") else " "
 	var words := out.split(" ", false)
-	for i in range(1, words.size()):
-		if words[i] in ["two", "2", "too"] and not words[i - 1] in ["select", "to", "unit", "soldier", "number"]:
-			words[i] = "to"
+	for i in words.size():
+		if words[i] == "too":
+			words[i] = "two"
 	var text := " " + " ".join(words) + " "
 	return text.replace(" all right ", " alright ")
 
@@ -521,8 +546,10 @@ static func _split_segments(text: String) -> Array:
 	for i in words.size():
 		var w := words[i]
 		# "up and left" is one diagonal, not two orders.
+		# Likewise "a hundred and twenty" is one number.
 		var joins_dirs := w == "and" and i > 0 and i + 1 < words.size() \
-			and words[i - 1] in single_dirs and words[i + 1] in single_dirs
+			and ((words[i - 1] in single_dirs and words[i + 1] in single_dirs) \
+				or (words[i - 1] == "hundred" and (Cfg.VOICE_NUMBER_WORDS.has(words[i + 1]) or words[i + 1].is_valid_int())))
 		if w in ["and", "then", "also"] and not joins_dirs:
 			if not cur.is_empty():
 				segs.append(" " + " ".join(cur) + " ")
@@ -547,16 +574,21 @@ static func parse_utterance(raw: String) -> Array:
 	var out := []
 	var subject := -2
 	var moved := []
+	var steered := []
 	for seg in _split_segments(text):
 		var cmd := _parse_segment(seg, subject)
 		if cmd["type"] == CmdType.NONE:
 			continue
 		subject = cmd.get("subject", subject)
 		cmd["text"] = raw
-		# "go to base then go up": the second move starts where the first ends.
-		if cmd["type"] == CmdType.MOVE_CALLOUT or cmd["type"] == CmdType.MOVE_DIR:
-			cmd["queue"] = subject in moved
+		# The second move for the same soldier starts where the first ends.
+		if cmd["type"] == CmdType.MOVE_DIR:
+			cmd["step"] = moved.count(subject)
+			cmd["queue"] = cmd["step"] > 0
 			moved.append(subject)
+		elif cmd["type"] == CmdType.STEER:
+			cmd["step"] = steered.count(subject)
+			steered.append(subject)
 		out.append(cmd)
 	return out
 
@@ -578,6 +610,14 @@ static func best_parse(alts) -> Array:
 static func _parse_segment(text: String, inherited: int) -> Dictionary:
 	var subject := inherited
 	var named := false
+
+	# Before the soldier numbers: "first spell" must not select Alpha.
+	var spell_slot := -1
+	if _find(text, "abilities").is_empty():
+		var spell := _find(text, "spell_slots")
+		if not spell.is_empty():
+			spell_slot = spell[0]
+			text = _cut(text, spell)
 
 	# A number names a soldier only at the start ("two go left", "select three").
 	var words := text.split(" ", false)
@@ -615,29 +655,34 @@ static func _parse_segment(text: String, inherited: int) -> Dictionary:
 		return {"type": CmdType.HALT, "subject": subject}
 
 	hit = _find(text, "abilities")
-	if not hit.is_empty():
-		text = _cut(text, hit)
-		var callout := _find(text, "callouts")
-		return {"type": CmdType.ABILITY, "ability": hit[0], "subject": subject,
-			"target": callout[0] if not callout.is_empty() else "",
-			"dir": _direction(text) if callout.is_empty() else Vector2.ZERO}
+	if not hit.is_empty() or spell_slot >= 0:
+		if not hit.is_empty():
+			text = _cut(text, hit)
+		# A spell slot ("ability": -1) is resolved against the loadout by the Voice node.
+		return {"type": CmdType.ABILITY, "ability": hit[0] if not hit.is_empty() else -1,
+			"slot": spell_slot, "subject": subject,
+			"dir": _direction(text)}
 
 	if not named and not _find(text, "next").is_empty():
 		return {"type": CmdType.SELECT_NEXT, "subject": -2}
 
+	# "about face" is a turn, not a watch order.
+	if not _find(text, "steer_around").is_empty():
+		return _parse_steer(text, subject, dist)
+
 	hit = _find(text, "watch")
 	if not hit.is_empty():
 		var rest := _cut(text, hit)
-		var callout := _find(rest, "callouts")
-		if not callout.is_empty():
-			return {"type": CmdType.WATCH_CALLOUT, "subject": subject, "param": callout[0]}
 		var wdir := _direction(rest)
 		if wdir != Vector2.ZERO:
 			return {"type": CmdType.WATCH_DIR, "subject": subject, "param": direction_label(wdir), "dir": wdir}
+		return {"type": CmdType.NONE}
 
-	hit = _find(text, "callouts")
-	if not hit.is_empty():
-		return {"type": CmdType.MOVE_CALLOUT, "subject": subject, "param": hit[0]}
+	# Without a compass word, forward / back / left / right steer the soldier.
+	if _find(text, "compass").is_empty():
+		var steer := _parse_steer(text, subject, dist)
+		if steer["type"] != CmdType.NONE:
+			return steer
 
 	var dir := _direction(text)
 	if dir != Vector2.ZERO:
@@ -646,3 +691,65 @@ static func _parse_segment(text: String, inherited: int) -> Dictionary:
 	if named and subject >= 0:
 		return {"type": CmdType.SELECT, "subject": subject}
 	return {"type": CmdType.NONE}
+
+
+## Soldier-relative driving: "forward", "back 5", "left 30", "go right", "turn around".
+## turn is in degrees (positive = right / clockwise on screen); tiles 0 = until a wall.
+static func _parse_steer(text: String, subject: int, dist: String) -> Dictionary:
+	var move := 0
+	var hit := _find(text, "steer_around")
+	var around := not hit.is_empty()
+	if around:
+		text = _cut(text, hit)
+	var side := 0.0
+	for s in [["left", -1.0], ["right", 1.0]]:
+		hit = _find(text, "steer_" + s[0])
+		if not hit.is_empty():
+			side = s[1]
+			text = _cut(text, hit)
+	# "left 180" / "right one eighty": the 180 is the size of a left / right turn.
+	var turn := (180.0 * (side if side != 0.0 else 1.0)) if around else side * Cfg.VOICE_TURN_DEFAULT
+	if not _find(text, "steer_backward").is_empty():
+		move = -1
+	elif not _find(text, "steer_forward").is_empty():
+		move = 1
+	var go := not _find(text, "steer_go").is_empty()
+	if move == 0 and go and ((turn != 0.0 and not around) or _number(text) > 0 or dist != ""):
+		move = 1
+	if turn == 0.0 and move == 0:
+		return {"type": CmdType.NONE}
+	var n := _number(text)
+	var exact := around
+	var tiles := 0
+	if turn != 0.0 and not exact:
+		if n > 0:
+			turn = signf(turn) * minf(n, 360.0)
+			exact = true
+		elif dist == "short" and move == 0:
+			turn = signf(turn) * Cfg.VOICE_TURN_SHORT
+			dist = ""
+	elif n > 0:
+		tiles = n
+	return {"type": CmdType.STEER, "subject": subject, "move": move, "turn": turn, "exact": exact,
+		"tiles": tiles, "dist": dist}
+
+
+## First number in `text` ("30", "forty five", "a hundred", "one twenty" = 120), or -1.
+static func _number(text: String) -> int:
+	var total := -1
+	var lone_digit := false
+	for w in text.split(" ", false):
+		if w.is_valid_int():
+			return int(w) if total < 0 else total + int(w)
+		if Cfg.VOICE_NUMBER_WORDS.has(w):
+			var v: int = Cfg.VOICE_NUMBER_WORDS[w]
+			if v == 100:
+				total = maxi(total, 1) * 100
+			elif lone_digit and v >= 20:
+				total = total * 100 + v
+			else:
+				total = maxi(total, 0) + v
+			lone_digit = total == v and v < 10
+		elif total >= 0:
+			break
+	return total
