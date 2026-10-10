@@ -27,7 +27,7 @@
 
 ## 🎮 Game Concept & Features
 
-*Tactical Squad Duel* is a 1 vs 1 competitive top-down shooter. Each player commands a small tactical fireteam (3 soldiers: **Rifle**, **SMG**, **Shotgun**), but directly directs one soldier at a time.
+*Tactical Squad Duel* is a 1 vs 1 competitive top-down magic duel. Each player commands a small tactical fireteam (4 casters: **Arc Bolt**, **Volley**, **Prism**, **Arc Bolt**), but directly directs one character at a time.
 
 - **Authoritative Server Simulation**: All movements, collisions, line-of-sight calculations, weapon firing, damage, and cooldowns run on the dedicated server.
 - **True Anti-Cheat Fog of War**: The server uses DDA raycasts to check visibility. Hidden enemy positions are **never sent to the client** until an ally has direct line of sight. Wallhacks and client tampering cannot reveal enemies!

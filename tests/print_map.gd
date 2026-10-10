@@ -3,10 +3,11 @@ extends SceneTree
 
 func _init() -> void:
 	var MapData = load("res://scripts/map_data.gd")
+	var Cfg = load("res://scripts/config.gd")
 	var m = MapData.new()
 	m.debug_print()
 	for team in 2:
-		for i in 3:
+		for i in Cfg.SQUAD_SIZE:
 			var p: Vector2 = m.spawn_position(team, i)
 			print("spawn ", team, " ", i, " ", p, " wall=", m.is_wall_at(p))
 	var path = m.find_path(m.spawn_position(0, 0), m.spawn_position(1, 0))

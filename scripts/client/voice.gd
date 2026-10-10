@@ -308,243 +308,55 @@ func _poll() -> void:
 		enabled = false
 	_set_status(new_status)
 	for item in data.get("q", []):
-		_on_result(str(item.get("key", "")), item.get("alts", []), bool(item.get("final", false)))
+		_handle_result(str(item.get("key", "")), str(item.get("text", "")), bool(item.get("final", false)))
 
 
-func _on_result(key: String, alts: Array, is_final: bool) -> void:
-	var clean := PackedStringArray()
-	for a in alts:
-		var s := str(a).strip_edges()
-		if s != "":
-			clean.append(s)
-	var r: Dictionary = _results.get(key, {"alts": PackedStringArray(), "final": false, "changed": _clock, "done": "", "sigs": []})
-	if clean != r["alts"]:
-		r["alts"] = clean
-		r["changed"] = _clock
-	r["final"] = is_final
-	_results[key] = r
+func _handle_result(key: String, text: String, is_final: bool) -> void:
+	var lower := text.to_lower()
+	var best := lower.split(" | ")[0].strip_edges()
+	if best != "":
+		last_heard = best
+	var fired: Array = _fired.get(key, [])
+
+	for alt in text.split(" | "):
+		var cmd := parse_voice(alt)
+		if cmd["type"] != CmdType.NONE:
+			var cmd_key := "%d:%s:%s" % [cmd["type"], str(cmd.get("subject", "")), str(cmd.get("param", cmd.get("ability", "")))]
+			if cmd_key in fired:
+				continue
+			fired.append(cmd_key)
+			_fired[key] = fired
+			command_spoken.emit(cmd)
+			if cmd["type"] == CmdType.SELECT and cmd.get("subject", -1) >= 0:
+				select_spoken.emit(cmd["subject"], best)
+			elif cmd["type"] == CmdType.ABILITY:
+				ability_spoken.emit(cmd["ability"], best)
+			break
+
+	if is_final and _fired.size() > 64:
+		_fired.clear()
 
 
-func _evaluate_results() -> void:
-	var live := ""
-	var live_t := -1.0
-	for key in _results.keys():
-		var r: Dictionary = _results[key]
-		var text: String = r["alts"][0] if not r["alts"].is_empty() else ""
-		var stable: bool = r["final"] or _clock - r["changed"] >= INTERIM_STABLE_S
-		var state_id := "%s|%s" % [text, r["final"]]
-		if stable and r["done"] != state_id:
-			r["done"] = state_id
-			_act(key, r)
-		if r["final"]:
-			if text != "":
-				_history_entry(key, text)["age"] = 0.0
-			_results.erase(key)
-		elif r["changed"] > live_t:
-			live = text
-			live_t = r["changed"]
-	interim_text = live
+## Static natural grammar parser for testing and runtime.
+static func parse_voice(raw: String) -> Dictionary:
+	var cleaned := " "
+	var lower := raw.to_lower()
+	for c in lower:
+		if (c >= "a" and c <= "z") or (c >= "0" and c <= "9"):
+			cleaned += c
+		else:
+			cleaned += " "
+	cleaned = " " + " ".join(cleaned.split(" ", false)) + " "
 
+	# 1. Meta match commands
+	for w in Cfg.VOICE_ACTIONS["deploy"]:
+		if cleaned.find(" " + w + " ") != -1:
+			return {"type": CmdType.DEPLOY, "text": raw}
+	for w in Cfg.VOICE_ACTIONS["rematch"]:
+		if cleaned.find(" " + w + " ") != -1:
+			return {"type": CmdType.REMATCH, "text": raw}
 
-func _act(key: String, r: Dictionary) -> void:
-	var cmds := best_parse(r["alts"])
-	for cmd in cmds:
-		if not r["final"] and not is_complete(cmd):
-			continue
-		var sig := command_signature(cmd)
-		if sig in r["sigs"]:
-			continue
-		r["sigs"].append(sig)
-		last_action = format_action_tag(cmd)
-		_history_entry(key, r["alts"][0])["tags"].append(last_action)
-		command_spoken.emit(cmd)
-
-
-func _history_entry(key: String, text: String) -> Dictionary:
-	for h in history:
-		if h["key"] == key:
-			h["text"] = text
-			return h
-	var entry := {"key": key, "text": text, "tags": [], "age": 0.0}
-	history.append(entry)
-	while history.size() > HISTORY_SIZE:
-		history.pop_front()
-	return entry
-
-
-# --------------------------------------------------------------------------
-# Command helpers
-# --------------------------------------------------------------------------
-
-## Commands that are safe to run from interim text. A smoke without a target
-## waits for the final result, because "smoke ... kitchen" is still coming.
-static func is_complete(cmd: Dictionary) -> bool:
-	if cmd.get("type") == CmdType.ABILITY and cmd.get("ability") == Cfg.Ability.SMOKE:
-		return cmd.get("target", "") != "" or cmd.get("dir", Vector2.ZERO) != Vector2.ZERO
-	return true
-
-
-static func command_signature(cmd: Dictionary) -> String:
-	if cmd.get("type") == CmdType.ABILITY:
-		return "ability:%d" % cmd["ability"]  # cooldowns are per team: once per utterance
-	return "%d:%d:%s:%s" % [cmd.get("type", 0), cmd.get("subject", -2), str(cmd.get("param", "")), str(cmd.get("dist", ""))]
-
-
-static func direction_label(dir: Vector2) -> String:
-	var parts := []
-	if dir.y < -0.1: parts.append("UP")
-	if dir.y > 0.1: parts.append("DOWN")
-	if dir.x > 0.1: parts.append("RIGHT")
-	if dir.x < -0.1: parts.append("LEFT")
-	return "-".join(parts)
-
-
-static func format_action_tag(cmd: Dictionary) -> String:
-	var who: String = SUBJECT_NAMES.get(cmd.get("subject", -2), "")
-	var pre := who + " " if who != "" else ""
-	match cmd.get("type", CmdType.NONE):
-		CmdType.SELECT:
-			return "SELECT " + who
-		CmdType.SELECT_NEXT:
-			return "NEXT SOLDIER"
-		CmdType.MOVE_CALLOUT:
-			return pre + "MOVE > " + MapData.callout_label(cmd["param"])
-		CmdType.MOVE_DIR:
-			var extra: String = {"short": " (BIT)", "far": " (FAR)"}.get(cmd.get("dist", ""), "")
-			return pre + "MOVE " + str(cmd["param"]) + extra
-		CmdType.WATCH_DIR:
-			return pre + "WATCH " + str(cmd["param"])
-		CmdType.WATCH_CALLOUT:
-			return pre + "WATCH " + MapData.callout_label(cmd["param"])
-		CmdType.HALT:
-			return pre + "STOP"
-		CmdType.ABILITY:
-			var tag: String = pre + str(Cfg.ABILITIES[cmd["ability"]]["name"]).to_upper()
-			if cmd.get("target", "") != "":
-				tag += " > " + MapData.callout_label(cmd["target"])
-			elif cmd.get("dir", Vector2.ZERO) != Vector2.ZERO:
-				tag += " " + direction_label(cmd["dir"])
-			return tag
-		CmdType.DEPLOY:
-			return "DEPLOY"
-		CmdType.REMATCH:
-			return "REMATCH"
-	return ""
-
-
-# --------------------------------------------------------------------------
-# Grammar
-# --------------------------------------------------------------------------
-
-static var _vocab := {}
-
-
-## [[phrase, id], ...] with the longest phrase first.
-static func _sorted(map: Dictionary) -> Array:
-	var out := []
-	for id in map:
-		for w in map[id]:
-			out.append([str(w), id])
-	out.sort_custom(func(a, b): return a[0].length() > b[0].length())
-	return out
-
-
-static func _phrases(name: String) -> Array:
-	if _vocab.is_empty():
-		var callouts := {}
-		for id in Cfg.CALLOUTS:
-			var words: Array = Cfg.CALLOUTS[id]["words"]
-			callouts[id] = words
-			if Cfg.CALLOUTS[id]["mirror"]:
-				var twin := []
-				for p in Cfg.VOICE_ENEMY_PREFIXES:
-					for w in words:
-						twin.append(p + " " + w)
-				callouts["enemy_" + id] = twin
-		callouts["enemy_base"] = callouts["enemy_base"] + Cfg.VOICE_ENEMY_BASE_WORDS
-		_vocab = {
-			"subjects": _sorted(Cfg.VOICE_SUBJECTS),
-			"numbers": _sorted(Cfg.VOICE_SUBJECT_NUMBERS),
-			"callouts": _sorted(callouts),
-			"directions": _sorted(Cfg.VOICE_DIRECTIONS),
-			"abilities": _sorted(Cfg.VOICE_PHRASES),
-		}
-		for key in Cfg.VOICE_ACTIONS:
-			_vocab[key] = _sorted({key: Cfg.VOICE_ACTIONS[key]})
-	return _vocab[name]
-
-
-## Longest vocabulary phrase found in `text` -> [id, index, phrase], or [].
-static func _find(text: String, vocab_name: String) -> Array:
-	for entry in _phrases(vocab_name):
-		var idx := text.find(" " + entry[0] + " ")
-		if idx != -1:
-			return [entry[1], idx, entry[0]]
-	return []
-
-
-static func _cut(text: String, hit: Array) -> String:
-	return text.substr(0, hit[1]) + text.substr(hit[1] + hit[2].length() + 1)
-
-
-## Lower-case, letters/digits only, padded with spaces: " alpha go to kitchen ".
-static func normalize(raw: String) -> String:
-	var out := ""
-	for c in raw.to_lower():
-		out += c if (c >= "a" and c <= "z") or (c >= "0" and c <= "9") else " "
-	var words := out.split(" ", false)
-	for i in range(1, words.size()):
-		if words[i] in ["two", "2", "too"] and not words[i - 1] in ["select", "to", "unit", "soldier", "number"]:
-			words[i] = "to"
-	var text := " " + " ".join(words) + " "
-	return text.replace(" all right ", " alright ")
-
-
-## Sum of all direction words in `text`, snapped to the 8 compass directions.
-static func _direction(text: String) -> Vector2:
-	var v := Vector2.ZERO
-	var hit := _find(text, "directions")
-	while not hit.is_empty():
-		v += Cfg.VOICE_DIRECTION_VECTORS[hit[0]]
-		text = _cut(text, hit)
-		hit = _find(text, "directions")
-	return Vector2(signf(v.x), signf(v.y)).normalized()
-
-
-static func _split_segments(text: String) -> Array:
-	var single_dirs := []
-	for id in Cfg.VOICE_DIRECTIONS:
-		single_dirs.append_array(Cfg.VOICE_DIRECTIONS[id])
-	var words := text.split(" ", false)
-	var segs := []
-	var cur := []
-	for i in words.size():
-		var w := words[i]
-		# "up and left" is one diagonal, not two orders.
-		var joins_dirs := w == "and" and i > 0 and i + 1 < words.size() \
-			and words[i - 1] in single_dirs and words[i + 1] in single_dirs
-		if w in ["and", "then", "also"] and not joins_dirs:
-			if not cur.is_empty():
-				segs.append(" " + " ".join(cur) + " ")
-			cur = []
-		elif not joins_dirs:
-			cur.append(w)
-	if not cur.is_empty():
-		segs.append(" " + " ".join(cur) + " ")
-	return segs
-
-
-## Parses a whole utterance into a list of commands. Orders can be chained with
-## "and" / "then"; a later order without a name reuses the previous soldier.
-static func parse_utterance(raw: String) -> Array:
-	var text := normalize(raw)
-	if text.strip_edges() == "":
-		return []
-	if not _find(text, "rematch").is_empty():
-		return [{"type": CmdType.REMATCH, "text": raw}]
-	if not _find(text, "deploy").is_empty():
-		return [{"type": CmdType.DEPLOY, "text": raw}]
-	var out := []
+	# 2. Extract Subject (Alpha, Bravo, Charlie, Delta, Squad, or default -2)
 	var subject := -2
 	var moved := []
 	for seg in _split_segments(text):
