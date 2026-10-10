@@ -7,9 +7,13 @@ const Cfg = preload("res://scripts/config.gd")
 const MapData = preload("res://scripts/map_data.gd")
 
 const FLAG_MOVING := 1
-const FLAG_SUPPRESS := 2
+const FLAG_OUTRAGE := 2
 const FLAG_RUSH := 4
 const FLAG_ALIVE := 8
+const FLAG_INVISIBLE := 16
+const FLAG_STICK := 32
+const FLAG_FLASH := 64
+const FLAG_WAND_BOOST := 128
 
 
 class Soldier:
@@ -30,8 +34,17 @@ class Soldier:
 	var fire_cd := 0.0
 	var target := -1
 	var acquire := 0.0
-	var suppress_t := 0.0
 	var rush_t := 0.0
+	var outrage_t := 0.0
+	var invisible_t := 0.0
+	var stick_mode := false
+	var stick_burst_t := 0.0
+	var wand_boost_t := 0.0
+	var dash_t := 0.0
+	var dash_duration := 0.0
+	var dash_from := Vector2.ZERO
+	var dash_to := Vector2.ZERO
+	var dash_invulnerable := false
 
 
 var map := MapData.new()
@@ -39,7 +52,7 @@ var peers := [0, 0]          # peer id per slot (0 = empty)
 var names := ["", ""]
 var squads := [[], []]       # Array[Soldier] per team
 var selected := [0, 0]
-var cooldowns := [[0.0, 0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 0.0]]
+var cooldowns := [[], []]
 var fogs := []               # {pos, radius, t}
 var scans := []              # {team, origin, t}
 var events := [[], []]       # per team, flushed with every snapshot
@@ -137,7 +150,7 @@ func _begin_loadout() -> void:
 
 func _ability_count(mask: int) -> int:
 	var count := 0
-	for ability in 4:
+	for ability in Cfg.ABILITY_COUNT:
 		if mask & (1 << ability):
 			count += 1
 	return count
@@ -150,7 +163,7 @@ func on_loadout(id: int, ability_masks: Array) -> void:
 	var validated := []
 	for raw_mask in ability_masks:
 		var mask := int(raw_mask)
-		if mask < 0 or mask > 15 or _ability_count(mask) != 3:
+		if mask < 0 or mask >= (1 << Cfg.ABILITY_COUNT) or _ability_count(mask) != 3:
 			events[slot].append(["msg", "Every character needs exactly three abilities."])
 			return
 		validated.append(mask)
@@ -172,7 +185,8 @@ func _reset_squads() -> void:
 			s.facing = map.spawn_facing(team)
 			s.watch_angle = s.facing
 			squads[team].append(s)
-		cooldowns[team] = [0.0, 0.0, 0.0, 0.0]
+		cooldowns[team].resize(Cfg.ABILITY_COUNT)
+		cooldowns[team].fill(0.0)
 		selected[team] = 0
 	fogs.clear()
 	scans.clear()
@@ -296,12 +310,35 @@ func on_ability(id: int, ability: int, target: Vector2, via_voice: bool) -> void
 					if _scan_reveals(e, s.pos):
 						count += 1
 				events[slot].append(["scan", s.pos, def["radius"], count])
-		Cfg.Ability.SUPPRESS:
-			for s: Soldier in casters:
-				s.suppress_t = def["duration"]
 		Cfg.Ability.RUSH:
 			for s: Soldier in casters:
 				s.rush_t = def["duration"]
+		Cfg.Ability.OUTRAGE:
+			for s: Soldier in casters:
+				s.outrage_t = def["duration"]
+		Cfg.Ability.FLASH:
+			for s: Soldier in casters:
+				_start_dash(s, Vector2.from_angle(s.facing), float(def["distance"]), float(def["duration"]), true)
+		Cfg.Ability.BREAK_MAGIC:
+			for s: Soldier in casters:
+				if s.stick_mode:
+					_cast_return_projectile(s)
+					s.stick_mode = false
+					s.stick_burst_t = 0.0
+					s.wand_boost_t = float(def["burst_duration"])
+					_start_dash(s, Vector2.from_angle(s.facing + PI), float(def["return_distance"]), float(def["return_duration"]), true, false)
+				else:
+					s.stick_mode = true
+					s.stick_burst_t = float(def["burst_duration"])
+					s.wand_boost_t = 0.0
+					_start_dash(s, Vector2.from_angle(s.facing), float(def["dash_distance"]), float(def["dash_duration"]), false)
+		Cfg.Ability.FIREBALL:
+			for s: Soldier in casters:
+				var center := _ability_target(s, target, float(def["cast_range"]))
+				_cast_fireball(s, center, def)
+		Cfg.Ability.INVISIBLE:
+			for s: Soldier in casters:
+				s.invisible_t = def["duration"]
 	for s: Soldier in casters:
 		s.mp = maxf(0.0, s.mp - mp_cost)
 	cooldowns[slot][ability] = float(def["cooldown"])
@@ -321,8 +358,130 @@ func _fog_landing(s: Soldier, throw_distance: float) -> Vector2:
 	return s.pos + direction * landing_distance
 
 
+func _start_dash(s: Soldier, direction: Vector2, distance: float, duration: float, invulnerable: bool, turn_to_dash := true) -> void:
+	var d := direction.normalized()
+	var side := d.orthogonal() * (Cfg.SOLDIER_RADIUS + 1.0)
+	var open_distance := distance
+	for offset in [Vector2.ZERO, side, -side]:
+		open_distance = minf(open_distance, map.raycast(s.pos + offset, d, distance))
+	if open_distance < distance - 0.01:
+		open_distance = maxf(0.0, open_distance - Cfg.SOLDIER_RADIUS - 2.0)
+	s.path.clear()
+	s.dash_from = s.pos
+	s.dash_to = s.pos + d * open_distance
+	s.dash_duration = maxf(duration, 0.01)
+	s.dash_t = s.dash_duration
+	s.dash_invulnerable = invulnerable
+	if turn_to_dash:
+		s.facing = d.angle()
+		s.watch_angle = s.facing
+
+
+func _ability_target(s: Soldier, requested: Vector2, max_range: float) -> Vector2:
+	var diff := requested - s.pos
+	if diff.length() < 0.01:
+		diff = Vector2.from_angle(s.facing)
+	var distance := minf(diff.length(), max_range)
+	var direction := diff.normalized()
+	var open_distance := map.raycast(s.pos, direction, distance)
+	if open_distance < distance - 0.01:
+		distance = maxf(0.0, open_distance - 4.0)
+	return s.pos + direction * distance
+
+
+func _cast_return_projectile(caster: Soldier) -> void:
+	var ability: Dictionary = Cfg.ABILITIES[Cfg.Ability.BREAK_MAGIC]
+	var weapon: Dictionary = Cfg.WEAPONS[caster.weapon]
+	var direction := Vector2.from_angle(caster.facing)
+	var max_range: float = float(weapon["range"]) * float(ability["wand_range_mult"])
+	var wall_distance := map.raycast(caster.pos, direction, max_range)
+	var projectile_radius: float = float(ability["return_projectile_radius"])
+	var victim: Soldier = null
+	var hit_distance := wall_distance
+	for enemy: Soldier in squads[1 - caster.team]:
+		if not enemy.alive:
+			continue
+		var offset := enemy.pos - caster.pos
+		var along := offset.dot(direction)
+		if along <= 0.0 or along > hit_distance:
+			continue
+		if absf(direction.cross(offset)) > projectile_radius + Cfg.SOLDIER_RADIUS:
+			continue
+		if not map.has_los(caster.pos, enemy.pos, []):
+			continue
+		victim = enemy
+		hit_distance = along
+	var start := caster.pos + direction * (Cfg.SOLDIER_RADIUS + 4.0)
+	var endpoint := caster.pos + direction * wall_distance
+	var damage := 0
+	if victim != null:
+		endpoint = victim.pos
+		var full_shot_damage := int(weapon["damage"]) * int(weapon["pellets"])
+		damage = _damage_after_defense(victim, roundi(full_shot_damage * float(ability["return_projectile_damage_mult"])))
+	var projectile_event := ["mega_shot", caster.team, caster.idx, start, endpoint, damage]
+	events[caster.team].append(projectile_event)
+	if victim != null:
+		if vis_table[victim.team][caster.idx]:
+			events[victim.team].append(projectile_event)
+		else:
+			var incoming_angle := (caster.pos - victim.pos).angle() + rng.randf_range(-0.12, 0.12)
+			events[victim.team].append(["incoming", victim.idx, incoming_angle, damage])
+		if damage > 0:
+			_apply_damage(caster, victim, damage)
+
+
+func _cast_fireball(caster: Soldier, center: Vector2, def: Dictionary) -> void:
+	for team in 2:
+		events[team].append(["fireball", center, float(def["radius"]), caster.team])
+	for team in 2:
+		for victim: Soldier in squads[team]:
+			if not victim.alive or victim.pos.distance_to(center) > float(def["radius"]):
+				continue
+			if not map.has_los(center, victim.pos, []):
+				continue
+			var push_dir := (victim.pos - center).normalized()
+			if push_dir == Vector2.ZERO:
+				push_dir = Vector2.from_angle(caster.facing)
+			var push_distance := minf(float(def["knockback"]), map.raycast(victim.pos, push_dir, float(def["knockback"])))
+			if push_distance < float(def["knockback"]) - 0.01:
+				push_distance = maxf(0.0, push_distance - Cfg.SOLDIER_RADIUS - 2.0)
+			victim.pos = map.resolve_circle(victim.pos + push_dir * push_distance, Cfg.SOLDIER_RADIUS)
+			var damage := _damage_after_defense(victim, int(def["damage"]))
+			if damage > 0:
+				_apply_damage(caster, victim, damage)
+
+
+func _damage_after_defense(victim: Soldier, raw_damage: int) -> int:
+	if victim.dash_t > 0.0 and victim.dash_invulnerable:
+		return 0
+	var damage := float(raw_damage)
+	if victim.outrage_t > 0.0:
+		damage *= float(Cfg.ABILITIES[Cfg.Ability.OUTRAGE]["damage_taken_mult"])
+	return maxi(0, roundi(damage))
+
+
+func _apply_damage(attacker: Soldier, victim: Soldier, damage: int) -> void:
+	if damage <= 0 or not victim.alive:
+		return
+	events[victim.team].append(["card_hit", victim.idx, damage])
+	var actual_damage := minf(float(damage), victim.hp)
+	if attacker.team != victim.team:
+		attacker.mp = minf(Cfg.SOLDIER_MP, attacker.mp + actual_damage * Cfg.MP_RESTORE_PER_DAMAGE)
+	attacker.invisible_t = 0.0
+	victim.hp -= damage
+	victim.health_regen_wait = Cfg.HEALTH_REGEN_DELAY
+	if victim.hp <= 0:
+		victim.hp = 0
+		victim.alive = false
+		victim.path.clear()
+		for t in 2:
+			events[t].append(["kill", victim.team, victim.idx, victim.pos, attacker.team, attacker.idx])
+		if selected[victim.team] == victim.idx:
+			_auto_select(victim.team)
+
+
 func _scan_reveals(e: Soldier, origin: Vector2) -> bool:
-	return e.alive and e.pos.distance_to(origin) <= Cfg.ABILITIES[Cfg.Ability.SCAN]["radius"] \
+	return e.alive and e.invisible_t <= 0.0 and e.pos.distance_to(origin) <= Cfg.ABILITIES[Cfg.Ability.SCAN]["radius"] \
 		and time - e.last_moved <= Cfg.SCAN_MOVE_MEMORY
 
 
@@ -379,7 +538,7 @@ func _update_facing_only(dt: float) -> void:
 
 func _simulate(dt: float) -> void:
 	for t in 2:
-		for a in 4:
+		for a in Cfg.ABILITY_COUNT:
 			cooldowns[t][a] = maxf(0.0, cooldowns[t][a] - dt)
 	for i in range(fogs.size() - 1, -1, -1):
 		fogs[i]["t"] -= dt
@@ -396,8 +555,11 @@ func _simulate(dt: float) -> void:
 			continue
 		_advance_regeneration(s, dt)
 		s.mp = minf(Cfg.SOLDIER_MP, s.mp + Cfg.SOLDIER_MP / Cfg.MP_RECOVERY_TIME * dt)
-		s.suppress_t = maxf(0.0, s.suppress_t - dt)
 		s.rush_t = maxf(0.0, s.rush_t - dt)
+		s.outrage_t = maxf(0.0, s.outrage_t - dt)
+		s.invisible_t = maxf(0.0, s.invisible_t - dt)
+		s.stick_burst_t = maxf(0.0, s.stick_burst_t - dt)
+		s.wand_boost_t = maxf(0.0, s.wand_boost_t - dt)
 		_move_soldier(s, dt)
 
 	# Soldier separation
@@ -437,6 +599,16 @@ func _advance_regeneration(s: Soldier, dt: float) -> void:
 
 
 func _move_soldier(s: Soldier, dt: float) -> void:
+	if s.dash_t > 0.0:
+		s.dash_t = maxf(0.0, s.dash_t - dt)
+		var progress := 1.0 - s.dash_t / s.dash_duration
+		s.pos = s.dash_from.lerp(s.dash_to, clampf(progress, 0.0, 1.0))
+		s.moving = true
+		s.last_moved = time
+		if s.dash_t <= 0.0:
+			s.pos = map.resolve_circle(s.dash_to, Cfg.SOLDIER_RADIUS)
+			s.dash_invulnerable = false
+		return
 	var desired := s.watch_angle if s.facing_lock else s.facing
 	s.moving = false
 	if not s.path.is_empty():
@@ -448,6 +620,10 @@ func _move_soldier(s: Soldier, dt: float) -> void:
 		var speed := Cfg.MOVE_SPEED
 		if s.rush_t > 0.0:
 			speed *= Cfg.ABILITIES[Cfg.Ability.RUSH]["speed_mult"]
+		if s.stick_mode:
+			speed *= Cfg.ABILITIES[Cfg.Ability.BREAK_MAGIC]["stick_speed_mult"]
+		if s.invisible_t > 0.0:
+			speed *= Cfg.ABILITIES[Cfg.Ability.INVISIBLE]["speed_mult"]
 		var step := speed * dt
 		if dist > 0.01:
 			var dir_angle := diff.angle()
@@ -470,7 +646,7 @@ func _compute_visibility() -> void:
 		var enemies: Array = squads[1 - team]
 		for e: Soldier in enemies:
 			var seen := false
-			if e.alive:
+			if e.alive and e.invisible_t <= 0.0:
 				for s: Soldier in squads[team]:
 					if s.alive and map.can_see(s.pos, s.facing, e.pos, fog_list):
 						seen = true
@@ -481,13 +657,16 @@ func _compute_visibility() -> void:
 func _shoot(s: Soldier, dt: float, fog_list: Array) -> void:
 	s.fire_cd = maxf(0.0, s.fire_cd - dt)
 	var w: Dictionary = Cfg.WEAPONS[s.weapon]
-	var suppressed := s.suppress_t > 0.0
-	var cone := Cfg.weapon_cone(s.weapon, suppressed)
+	var cone := Cfg.weapon_cone(s.weapon)
 	var rng_max: float = w["range"]
+	if s.stick_mode:
+		rng_max *= float(Cfg.ABILITIES[Cfg.Ability.BREAK_MAGIC]["stick_range_mult"])
+	elif s.wand_boost_t > 0.0:
+		rng_max *= float(Cfg.ABILITIES[Cfg.Ability.BREAK_MAGIC]["wand_range_mult"])
 	var best: Soldier = null
 	var best_d := INF
 	for e: Soldier in squads[1 - s.team]:
-		if not e.alive:
+		if not e.alive or e.invisible_t > 0.0:
 			continue
 		var diff := e.pos - s.pos
 		var d := diff.length()
@@ -515,9 +694,10 @@ func _shoot(s: Soldier, dt: float, fog_list: Array) -> void:
 
 	var interval: float = w["interval"]
 	var acc: float = w["accuracy"]
-	if suppressed:
-		interval /= Cfg.ABILITIES[Cfg.Ability.SUPPRESS]["rate_mult"]
-		acc *= Cfg.ABILITIES[Cfg.Ability.SUPPRESS]["accuracy_mult"]
+	if s.outrage_t > 0.0:
+		interval /= float(Cfg.ABILITIES[Cfg.Ability.OUTRAGE]["rate_mult"])
+	if s.wand_boost_t > 0.0:
+		interval /= float(Cfg.ABILITIES[Cfg.Ability.BREAK_MAGIC]["wand_rate_mult"])
 	if s.moving:
 		acc *= 0.8
 	acc *= 1.0 - 0.35 * clampf(best_d / rng_max, 0.0, 1.0)
@@ -534,6 +714,9 @@ func _shoot(s: Soldier, dt: float, fog_list: Array) -> void:
 		else:
 			var side := 1.0 if rng.randf() < 0.5 else -1.0
 			ends.append(best.pos + perp * side * rng.randf_range(14.0, 30.0) + dir * rng.randf_range(0.0, 60.0))
+	if s.stick_mode and s.stick_burst_t > 0.0:
+		dmg = roundi(float(dmg) * float(Cfg.ABILITIES[Cfg.Ability.BREAK_MAGIC]["stick_damage_mult"]))
+	dmg = _damage_after_defense(best, dmg)
 	var muzzle := s.pos + Vector2.from_angle(s.facing) * (Cfg.SOLDIER_RADIUS + 4.0)
 	var shot_ev := ["shot", s.team, s.idx, muzzle, ends, dmg]
 	events[s.team].append(shot_ev)
@@ -545,19 +728,7 @@ func _shoot(s: Soldier, dt: float, fog_list: Array) -> void:
 		events[best.team].append(["incoming", best.idx, ang, dmg])
 
 	if dmg > 0:
-		events[best.team].append(["card_hit", best.idx, dmg])
-		var actual_damage := minf(float(dmg), best.hp)
-		s.mp = minf(Cfg.SOLDIER_MP, s.mp + actual_damage * Cfg.MP_RESTORE_PER_DAMAGE)
-		best.hp -= dmg
-		best.health_regen_wait = Cfg.HEALTH_REGEN_DELAY
-		if best.hp <= 0:
-			best.hp = 0
-			best.alive = false
-			best.path.clear()
-			for t in 2:
-				events[t].append(["kill", best.team, best.idx, best.pos, s.team, s.idx])
-			if selected[best.team] == best.idx:
-				_auto_select(best.team)
+		_apply_damage(s, best, dmg)
 
 
 func _auto_select(team: int) -> void:
@@ -591,9 +762,13 @@ func _check_victory() -> void:
 func _flags(s: Soldier) -> int:
 	var f := 0
 	if s.moving: f |= FLAG_MOVING
-	if s.suppress_t > 0.0: f |= FLAG_SUPPRESS
+	if s.outrage_t > 0.0: f |= FLAG_OUTRAGE
 	if s.rush_t > 0.0: f |= FLAG_RUSH
 	if s.alive: f |= FLAG_ALIVE
+	if s.invisible_t > 0.0: f |= FLAG_INVISIBLE
+	if s.stick_mode: f |= FLAG_STICK
+	if s.dash_t > 0.0: f |= FLAG_FLASH
+	if s.wand_boost_t > 0.0: f |= FLAG_WAND_BOOST
 	return f
 
 

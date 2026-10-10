@@ -57,7 +57,7 @@ $$\mathbf{[Subject]} \longrightarrow \mathbf{[Action]} \longrightarrow \mathbf{[
 - **Squad Formations**: *"Squad move to Mid"*, *"All fall back to Base"*
 - **Directional Steps**: *"Move North"*, *"Advance"*, *"Step back"*, *"Fall back"*
 - **Aiming & Watching**: *"Watch North"*, *"Face East"*, *"Cover Mid"*, *"Hold angle"*
-- **Abilities**: *"Fog"*, *"Scan"*, *"Suppress"*, *"Squad rush"*
+- **Abilities**: *"Fog"*, *"Scan"*, *"Rush"*, *"Outrage"*, *"Flash"*, *"Break magic"*, *"Fireball"*, *"Invisible"*
 - **Stop**: *"Stop"*, *"Halt"*, *"Hold position"*, *"Stay"*
 - **Match Progression**: *"Deploy"*, *"Start"*, *"Rematch"*, *"Play again"*
 
@@ -74,7 +74,7 @@ $$\mathbf{[Subject]} \longrightarrow \mathbf{[Action]} \longrightarrow \mathbf{[
 | **Halt / Hold** | `"Stop"`<br>`"Alpha halt"`<br>`"Squad hold position"` | Cancels waypoints and immediately stops moving. |
 | **Watch / Aim Angle** | `"Watch North"`<br>`"Aim South"`<br>`"Bravo watch Mid"`<br>`"Cover East"` | Rotates firing cone to guard that direction or landmark. |
 | **Fog Magic** | `"Fog"`<br>`"Cast fog"`<br>`"Charlie fog"` | Conjures vision-blocking fog just ahead of each eligible caster. |
-| **Squad Abilities** | `"Scan"`<br>`"Suppress"`<br>`"Squad rush"` | Casts ability with server cooldown check & audio chirp. |
+| **Squad Abilities** | `"Fog"`<br>`"Scan"`<br>`"Rush"`<br>`"Outrage"`<br>`"Flash"`<br>`"Break magic"`<br>`"Fireball"`<br>`"Invisible"` | Casts the equipped ability for every eligible squad member, with server-side MP and cooldown checks. |
 | **Match Flow** | `"Deploy"`, `"Ready"`, `"Start"`<br>`"Rematch"`, `"Play again"` | Connects to lobby or requests an instant rematch after match ends. |
 
 ---

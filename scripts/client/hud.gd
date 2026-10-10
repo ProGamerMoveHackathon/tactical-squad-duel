@@ -103,7 +103,7 @@ func _draw() -> void:
 			draw_rect(r, Color(1.0, 0.83, 0.28, 1.0), false, 3.0)
 		_text(Vector2(x + 8, top + 22), "EHT züri", 10, Color(0.02, 0.025, 0.035) if alive else Color(0.4, 0.4, 0.42))
 		var equipped_badges: Array = game.equipped_abilities(i)
-		const ABILITY_BADGES := ["FG", "SC", "SU", "RU"]
+		const ABILITY_BADGES := ["FG", "SC", "RU", "OR", "FL", "FM", "FB", "IN"]
 		for badge_idx in mini(3, equipped_badges.size()):
 			var equipped_ability: int = equipped_badges[badge_idx]
 			var badge_cd: float = game.cooldowns[equipped_ability] if equipped_ability < game.cooldowns.size() else 0.0
@@ -141,8 +141,10 @@ func _draw() -> void:
 			draw_rect(Rect2(x + 24, top + 57, 85 * mp_frac, 5), Color(0.18, 0.58, 1.0))
 			var flags: int = o.get("flags", 0)
 			var tags := ""
-			if flags & 2: tags += "SUPP "
+			if flags & 2: tags += "RAGE "
 			if flags & 4: tags += "RUSH"
+			if flags & 16: tags += "INVIS"
+			if flags & 32: tags += "STICK"
 			if tags != "":
 				_text(Vector2(x + 80, top + 23), tags, 7, Color(0.72, 0.28, 0.04))
 		else:
@@ -167,11 +169,15 @@ func _draw() -> void:
 	# Ability cards
 	var ab_x := 642.0
 	var equipped: Array = game.equipped_abilities(game.selected)
+	var hovered_ability := -1
+	var mouse_pos := get_local_mouse_position()
 	for ability_slot in equipped.size():
 		var a: int = equipped[ability_slot]
 		var def: Dictionary = Cfg.ABILITIES[a]
 		var x := ab_x + ability_slot * 82.0
 		var r := Rect2(x, top + 7, 76, 94)
+		if r.has_point(mouse_pos):
+			hovered_ability = a
 		var cd: float = game.cooldowns[a] if a < game.cooldowns.size() else 0.0
 		var ready_casters: int = game.ready_ability_casters(a)
 		var is_ready := cd <= 0.0 and ready_casters > 0
@@ -184,14 +190,17 @@ func _draw() -> void:
 			draw_rect(r, Color(0.5, 1.0, 0.7, flash), false, 3.0)
 		draw_rect(Rect2(x + 8, top + 16, 24, 24), Color(0.3, 0.3, 0.35))
 		_text(Vector2(x + 14, top + 34), Cfg.ABILITY_SLOT_KEYS[ability_slot], 15)
-		_text(Vector2(x + 8, top + 58), def["name"], 14, Color.WHITE if is_ready else Color(0.6, 0.6, 0.6))
+		var ability_font_size := 10 if String(def["name"]).length() > 8 else 14
+		_text(Vector2(x + 8, top + 58), def["name"], ability_font_size, Color.WHITE if is_ready else Color(0.6, 0.6, 0.6))
 		_text(Vector2(x + 44, top + 34), "%d MP" % int(def["mp_cost"]), 9, Color(0.4, 0.72, 1.0))
 		if is_ready:
-			_text(Vector2(x + 8, top + 84), "say \"%s\"" % def["name"].to_lower(), 10, Color(0.6, 0.9, 0.7))
+			_text(Vector2(x + 8, top + 84), "say \"%s\"" % _voice_hint(a), 8, Color(0.6, 0.9, 0.7))
 		elif cd > 0.0:
 			_text(Vector2(x + 8, top + 84), "COOL %.1fs" % cd, 10, Color(0.82, 0.72, 0.48))
 		else:
 			_text(Vector2(x + 8, top + 84), "MP CHARGING", 9, Color(0.35, 0.72, 1.0))
+	if hovered_ability >= 0:
+		_draw_ability_tooltip(hovered_ability, mouse_pos, vw, top)
 
 	# Voice + enemy status
 	var vx := 896.0
@@ -262,3 +271,37 @@ func _draw() -> void:
 			var votes: Array = game.rematch_votes
 			var mine: bool = votes.size() > game.slot and votes[game.slot]
 			_text_center(vw * 0.5, center_y + 70, "Waiting for opponent to accept rematch..." if mine else "Press Enter or say \"Rematch\"", 18, Color(0.9, 0.9, 0.9))
+
+
+func _voice_hint(ability: int) -> String:
+	var phrases: Array = Cfg.VOICE_PHRASES.get(ability, [])
+	return str(phrases[0]) if not phrases.is_empty() else String(Cfg.ABILITIES[ability]["name"]).to_lower()
+
+
+func _draw_ability_tooltip(ability: int, mouse_pos: Vector2, viewport_width: float, bar_top: float) -> void:
+	var def: Dictionary = Cfg.ABILITIES[ability]
+	var lines := _wrap_tooltip(String(def["description"]), 54)
+	var box_width := 370.0
+	var box_height := 38.0 + lines.size() * 13.0
+	var x := clampf(mouse_pos.x - box_width * 0.5, 8.0, viewport_width - box_width - 8.0)
+	var y := bar_top - box_height - 7.0
+	draw_rect(Rect2(x, y, box_width, box_height), Color(0.015, 0.025, 0.045, 0.97))
+	draw_rect(Rect2(x, y, box_width, box_height), Color(0.28, 0.76, 0.96, 0.95), false, 2.0)
+	_text(Vector2(x + 10, y + 17), "%s  ·  %d MP  ·  %.1fs cooldown" % [def["name"], int(def["mp_cost"]), float(def["cooldown"])], 11, Color(1.0, 0.84, 0.34))
+	for line_idx in lines.size():
+		_text(Vector2(x + 10, y + 34 + line_idx * 13), lines[line_idx], 10, Color(0.9, 0.94, 0.98))
+
+
+func _wrap_tooltip(value: String, max_chars: int) -> Array:
+	var lines := []
+	var line := ""
+	for word in value.split(" "):
+		var candidate := str(word) if line == "" else line + " " + str(word)
+		if candidate.length() > max_chars and line != "":
+			lines.append(line)
+			line = str(word)
+		else:
+			line = candidate
+	if line != "":
+		lines.append(line)
+	return lines

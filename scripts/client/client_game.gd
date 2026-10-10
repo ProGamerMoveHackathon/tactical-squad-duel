@@ -35,7 +35,7 @@ var ghosts := []       # last known enemy positions
 var scanned := []      # [[idx, pos]]
 var enemy_alive := [true, true, true, true]
 var fogs := []         # [[pos, r, t_left]]
-var cooldowns := [0.0, 0.0, 0.0, 0.0]
+var cooldowns := []
 var names := ["", ""]
 var rematch_votes := [false, false]
 var loadout_masks := Cfg.DEFAULT_LOADOUTS.duplicate()
@@ -50,8 +50,9 @@ var card_hits := []
 var card_shots := []
 var corpses := []
 var scan_fx := []
+var blast_fx := []
 var messages := []
-var ability_flash := [0.0, 0.0, 0.0, 0.0]
+var ability_flash := []
 
 var world_rotation := 0.0
 var _sel_lock_until := 0.0
@@ -91,6 +92,10 @@ var sfx: Node
 
 
 func _ready() -> void:
+	cooldowns.resize(Cfg.ABILITY_COUNT)
+	cooldowns.fill(0.0)
+	ability_flash.resize(Cfg.ABILITY_COUNT)
+	ability_flash.fill(0.0)
 	_reset_own()
 	voice = Voice.new()
 	add_child(voice)
@@ -144,7 +149,7 @@ func _setup_debug_hooks() -> void:
 			if step[0] == 4:
 				_use_ability(Cfg.Ability.FOG, false)
 			if step[0] == 5:
-				_use_ability(Cfg.Ability.SUPPRESS, false))
+				_use_ability(Cfg.Ability.OUTRAGE, false))
 	if _query_param("pause") != "":
 		get_tree().create_timer(4.0).timeout.connect(_open_pause)
 
@@ -318,7 +323,7 @@ func _build_menu() -> void:
 		+ "• Select: \"Alpha\", \"Bravo\", \"Charlie\", \"Delta\", \"Squad\"\n" \
 		+ "• Move: \"Alpha to Mid\", \"Advance to North\", \"Fall back to Base\", \"Stop\"\n" \
 		+ "• Aim: \"Watch North\", \"Watch Mid\", \"Aim South\"\n" \
-		+ "• Abilities: \"Cast Fog\", \"Scan\", \"Suppress\", \"Squad Rush\"\n" \
+		+ "• Abilities: Fog, Scan, Rush, Outrage, Flash, Break Magic, Fireball, Invisible\n" \
 		+ "• Match: \"Deploy\", \"Rematch\"\n\n" \
 		+ "Fallback: LMB move · RMB face · 1-4 / numpad select · W E R ability slots · V mic toggle"
 	help.add_theme_font_size_override("font_size", 12)
@@ -446,14 +451,20 @@ func _build_loadout() -> void:
 		choices.add_theme_constant_override("v_separation", 6)
 		column.add_child(choices)
 		var unit_buttons := []
-		for ability in 4:
+		for ability in Cfg.ABILITY_COUNT:
 			var button := Button.new()
 			button.text = "%s  ·  %d MP" % [Cfg.ABILITIES[ability]["name"], int(Cfg.ABILITIES[ability]["mp_cost"])]
+			button.tooltip_text = "%s\n\n%s\nCost: %d MP  ·  Cooldown: %.1fs" % [
+				Cfg.ABILITIES[ability]["name"],
+				Cfg.ABILITIES[ability]["description"],
+				int(Cfg.ABILITIES[ability]["mp_cost"]),
+				float(Cfg.ABILITIES[ability]["cooldown"]),
+			]
 			button.toggle_mode = true
-			button.custom_minimum_size = Vector2(117, 42)
+			button.custom_minimum_size = Vector2(117, 32)
 			button.focus_mode = Control.FOCUS_NONE
 			_style_menu_button(button)
-			button.add_theme_font_size_override("font_size", 12)
+			button.add_theme_font_size_override("font_size", 10)
 			button.toggled.connect(_on_loadout_toggled.bind(unit_idx, ability))
 			choices.add_child(button)
 			unit_buttons.append(button)
@@ -477,7 +488,7 @@ func _build_loadout() -> void:
 
 func _loadout_ability_count(mask: int) -> int:
 	var count := 0
-	for ability in 4:
+	for ability in Cfg.ABILITY_COUNT:
 		if mask & (1 << ability):
 			count += 1
 	return count
@@ -507,7 +518,7 @@ func _refresh_loadout_ui() -> void:
 	var complete := true
 	for unit_idx in Cfg.SQUAD_SIZE:
 		var equipped := []
-		for ability in 4:
+		for ability in Cfg.ABILITY_COUNT:
 			var selected_ability: bool = (loadout_masks[unit_idx] & (1 << ability)) != 0
 			loadout_buttons[unit_idx][ability].button_pressed = selected_ability
 			loadout_buttons[unit_idx][ability].disabled = slot >= 0 and loadout_ready[slot]
@@ -537,7 +548,7 @@ func equipped_abilities(unit_idx: int) -> Array:
 	var result := []
 	if unit_idx < 0 or unit_idx >= loadout_masks.size():
 		return result
-	for ability in 4:
+	for ability in Cfg.ABILITY_COUNT:
 		if loadout_masks[unit_idx] & (1 << ability):
 			result.append(ability)
 	return result
@@ -545,7 +556,7 @@ func equipped_abilities(unit_idx: int) -> Array:
 
 func has_equipped_ability(unit_idx: int, ability: int) -> bool:
 	return unit_idx >= 0 and unit_idx < loadout_masks.size() \
-		and ability >= 0 and ability < 4 \
+		and ability >= 0 and ability < Cfg.ABILITY_COUNT \
 		and (loadout_masks[unit_idx] & (1 << ability)) != 0
 
 
@@ -697,7 +708,7 @@ func _build_pause_menu() -> void:
 	controls_title.add_theme_font_size_override("font_size", 20)
 	controls.add_child(controls_title)
 	var help := Label.new()
-	help.text = "1–4 / Numpad: select soldier\nTab: next living soldier\nLeft click: move / select\nRight click: face direction\nW/E/R: equipped abilities\nSay: fog · scan · suppress · rush\nV: voice toggle\nEscape: close menu"
+	help.text = "1–4 / Numpad: select soldier\nTab: next living soldier\nLeft click: move / select\nRight click: face direction\nW/E/R: equipped abilities\nVoice: fog, scan, rush, outrage, flash, break magic, fireball, invisible\nV: voice toggle\nEscape: close menu"
 	help.add_theme_color_override("font_color", Color(0.9, 0.96, 1.0))
 	controls.add_child(help)
 
@@ -894,6 +905,7 @@ func _reset_round_visuals() -> void:
 	card_shots.clear()
 	corpses.clear()
 	scan_fx.clear()
+	blast_fx.clear()
 
 
 func _on_snapshot(d: Dictionary) -> void:
@@ -994,6 +1006,21 @@ func _handle_event(ev: Array) -> void:
 		"scan":
 			scan_fx.append({"origin": ev[1], "radius": ev[2], "t": 1.0, "max": 1.0})
 			_msg("Scan: %d moving contact%s" % [ev[3], "" if ev[3] == 1 else "s"], Color(1.0, 0.6, 0.5))
+		"fireball":
+			blast_fx.append({"origin": ev[1], "radius": ev[2], "team": ev[3], "t": 0.55, "max": 0.55})
+			_spawn_magic_burst(ev[1], Color(1.0, 0.34, 0.04), Vector2.ZERO, 18)
+		"mega_shot":
+			var team: int = ev[1]
+			var from: Vector2 = ev[3]
+			var endpoint: Vector2 = ev[4]
+			var spell_color := Color(0.22, 0.88, 1.0) if team == slot else Color(1.0, 0.18, 0.78)
+			tracers.append({"a": from, "b": endpoint, "t": 0.42, "max": 0.42,
+				"color": spell_color, "seed": randf() * TAU, "hit": ev[5] > 0, "scale": 3.2})
+			_spawn_magic_burst(from, spell_color, (endpoint - from).normalized(), 18)
+			_spawn_magic_burst(endpoint, spell_color.lerp(Color.WHITE, 0.4), (endpoint - from).normalized(), 28 if ev[5] > 0 else 15)
+			if team == slot:
+				card_shots.append({"idx": ev[2], "t": 0.65})
+			sfx.play("cast_burst", -2.0)
 		"shot":
 			var team: int = ev[1]
 			var weapon: int = Cfg.SQUAD_WEAPONS[ev[2]]
@@ -1081,9 +1108,10 @@ func _process(dt: float) -> void:
 	_tick_list(card_hits, dt)
 	_tick_list(card_shots, dt)
 	_tick_list(scan_fx, dt)
+	_tick_list(blast_fx, dt)
 	_tick_list(ghosts, dt)
 	_tick_list(messages, dt)
-	for a in 4:
+	for a in Cfg.ABILITY_COUNT:
 		ability_flash[a] = maxf(0.0, ability_flash[a] - dt * 2.0)
 	if vision_mask:
 		vision_mask.reveal_all = state == Cfg.State.DEPLOYMENT or state == Cfg.State.COUNTDOWN or state == Cfg.State.ENDED

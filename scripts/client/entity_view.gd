@@ -74,17 +74,16 @@ func _draw() -> void:
 				continue
 			var is_sel: bool = o["idx"] == game.selected
 			var weapon: int = Cfg.SQUAD_WEAPONS[o["idx"]]
-			var suppressed: bool = o["flags"] & 2 != 0
 			var a := 0.20 if is_sel else 0.09
-			var col: Color = Color(1.0, 0.85, 0.3) if suppressed else _team_color(my_team)
-			_draw_cone(o["disp"], o["disp_facing"], Cfg.weapon_cone(weapon, suppressed), Cfg.WEAPONS[weapon]["range"], Color(col, a), Color(col, a + 0.25), fogs)
+			var enraged: bool = o["flags"] & 2 != 0
+			var col: Color = Color(1.0, 0.48, 0.12) if enraged else _team_color(my_team)
+			_draw_cone(o["disp"], o["disp_facing"], Cfg.weapon_cone(weapon), _display_range(weapon, o["flags"]), Color(col, a), Color(col, a + 0.25), fogs)
 
 		# Visible enemy cones
 		for idx in game.enemies:
 			var e: Dictionary = game.enemies[idx]
 			var weapon: int = Cfg.SQUAD_WEAPONS[idx]
-			var suppressed: bool = e["flags"] & 2 != 0
-			_draw_cone(e["disp"], e["disp_facing"], Cfg.weapon_cone(weapon, suppressed), Cfg.WEAPONS[weapon]["range"], Color(_team_color(enemy_team), 0.08), Color(_team_color(enemy_team), 0.3), fogs)
+			_draw_cone(e["disp"], e["disp_facing"], Cfg.weapon_cone(weapon), _display_range(weapon, e["flags"]), Color(_team_color(enemy_team), 0.08), Color(_team_color(enemy_team), 0.3), fogs)
 
 	# Selected soldier path / watch direction
 	if game.state == Cfg.State.PLAYING and game.selected >= 0 and game.selected < game.own.size():
@@ -114,6 +113,12 @@ func _draw() -> void:
 	for fx in game.scan_fx:
 		var k: float = 1.0 - fx["t"] / fx["max"]
 		draw_arc(fx["origin"], fx["radius"] * k, 0.0, TAU, 96, Color(0.4, 1.0, 0.7, 0.6 * (1.0 - k)), 3.0)
+	for fx in game.blast_fx:
+		var k: float = 1.0 - fx["t"] / fx["max"]
+		var radius: float = fx["radius"] * (0.25 + 0.75 * k)
+		draw_circle(fx["origin"], radius, Color(1.0, 0.22, 0.03, 0.12 * (1.0 - k)))
+		draw_arc(fx["origin"], radius, 0.0, TAU, 64, Color(1.0, 0.65, 0.12, 0.9 * (1.0 - k)), 5.0)
+		draw_arc(fx["origin"], radius * 0.72, 0.0, TAU, 48, Color(1.0, 0.95, 0.55, 0.7 * (1.0 - k)), 2.0)
 
 	# Enemies
 	for idx in game.enemies:
@@ -127,6 +132,7 @@ func _draw() -> void:
 
 	# Animated magical bolts with layered additive-looking neon glow.
 	for tr in game.tracers:
+		var tracer_scale: float = float(tr.get("scale", 1.0))
 		var progress := clampf(1.0 - tr["t"] / tr["max"], 0.0, 1.0)
 		var head_progress := minf(1.0, progress * 1.35)
 		var tail_progress := maxf(0.0, head_progress - 0.20)
@@ -136,12 +142,12 @@ func _draw() -> void:
 		var tail: Vector2 = tr["a"].lerp(tr["b"], tail_progress) - side * 0.35
 		var fade := clampf(tr["t"] / 0.10, 0.0, 1.0)
 		var col: Color = tr["color"]
-		draw_line(tail, head, Color(col.r, col.g, col.b, 0.16 * fade), 11.0)
-		draw_line(tail, head, Color(col.r, col.g, col.b, 0.42 * fade), 6.0)
-		draw_line(tail, head, Color(0.92, 1.0, 1.0, 0.95 * fade), 2.2)
-		draw_circle(head, 9.0, Color(col.r, col.g, col.b, 0.16 * fade))
-		draw_circle(head, 4.0, Color(col.r, col.g, col.b, 0.88 * fade))
-		draw_circle(head, 1.8, Color(1.0, 1.0, 1.0, fade))
+		draw_line(tail, head, Color(col.r, col.g, col.b, 0.16 * fade), 11.0 * tracer_scale)
+		draw_line(tail, head, Color(col.r, col.g, col.b, 0.42 * fade), 6.0 * tracer_scale)
+		draw_line(tail, head, Color(0.92, 1.0, 1.0, 0.95 * fade), 2.2 * tracer_scale)
+		draw_circle(head, 9.0 * tracer_scale, Color(col.r, col.g, col.b, 0.16 * fade))
+		draw_circle(head, 4.0 * tracer_scale, Color(col.r, col.g, col.b, 0.88 * fade))
+		draw_circle(head, 1.8 * tracer_scale, Color(1.0, 1.0, 1.0, fade))
 
 	# Neon casting and impact sparks.
 	for particle in game.magic_particles:
@@ -195,6 +201,9 @@ func _draw_soldier(p: Vector2, facing: float, team: int, idx: int, hp: int, flag
 		var back := Vector2.from_angle(facing + PI)
 		for i in 3:
 			draw_line(p + back * (r + 3 + i * 4) + back.orthogonal() * (i - 1) * 5.0, p + back * (r + 10 + i * 4) + back.orthogonal() * (i - 1) * 5.0, Color(0.6, 1.0, 0.9, 0.7), 2.0)
+	if show_ui and flags & 64 != 0:  # flash / evasive dash
+		var back := Vector2.from_angle(facing + PI)
+		draw_line(p + back * 5.0, p + back * 34.0, Color(0.35, 0.92, 1.0, 0.75), 5.0)
 
 	# Shadow
 	draw_circle(p + Vector2(2, 3), r + 2.0, Color(0, 0, 0, 0.35))
@@ -207,6 +216,10 @@ func _draw_soldier(p: Vector2, facing: float, team: int, idx: int, hp: int, flag
 	if not soldier_textures.is_empty():
 		# Each squad slot has a matching modern-student portrait and overhead sprite.
 		var sprite_mod := Color(0.92, 0.96, 1.0) if team == 0 else Color(1.0, 0.88, 0.88)
+		if flags & 16 != 0:
+			sprite_mod.a = 0.34
+		elif flags & 32 != 0:
+			sprite_mod = sprite_mod.lerp(Color(1.0, 0.62, 0.18), 0.34)
 		draw_set_transform(p, facing, Vector2.ONE)
 		draw_texture_rect(soldier_textures[idx % soldier_textures.size()], Rect2(-24, -18, 48, 36), false, sprite_mod)
 		draw_set_transform_matrix(Transform2D.IDENTITY)
@@ -236,8 +249,13 @@ func _draw_soldier(p: Vector2, facing: float, team: int, idx: int, hp: int, flag
 		if frac > 0.0:
 			draw_arc(p, r + 3.0, -PI * 0.5 - game.world_rotation, -PI * 0.5 - game.world_rotation + TAU * frac, 32, hp_col, 3.0)
 
-		if flags & 2 != 0:  # suppress
-			draw_arc(p, r + 7.0, 0.0, TAU, 24, Color(1.0, 0.85, 0.3, 0.7), 2.0)
+		if flags & 2 != 0:  # outrage
+			var rage_pulse := 0.55 + 0.35 * sin(game.time * 20.0)
+			draw_arc(p, r + 7.0, 0.0, TAU, 24, Color(1.0, 0.28, 0.04, rage_pulse), 3.0)
+		if flags & 32 != 0:  # stick stance
+			draw_arc(p, r + 6.0, -1.2, 1.2, 18, Color(1.0, 0.68, 0.18, 0.8), 2.0)
+		if flags & 128 != 0:  # empowered wand
+			draw_arc(p, r + 7.0, 0.0, TAU, 24, Color(0.45, 0.8, 1.0, 0.8), 2.0)
 
 		# Label (counter-rotated so text is always upright)
 		var label: String = str(idx + 1) if team == game.slot else ["A", "B", "C", "D"][idx]
@@ -250,6 +268,15 @@ func _draw_label(p: Vector2, text: String, col: Color, size: int) -> void:
 	var w := font.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, size).x
 	draw_string(font, Vector2(-w * 0.5, size * 0.35), text, HORIZONTAL_ALIGNMENT_LEFT, -1, size, col)
 	draw_set_transform_matrix(Transform2D.IDENTITY)
+
+
+func _display_range(weapon: int, flags: int) -> float:
+	var result: float = Cfg.WEAPONS[weapon]["range"]
+	if flags & 32 != 0:
+		result *= float(Cfg.ABILITIES[Cfg.Ability.BREAK_MAGIC]["stick_range_mult"])
+	elif flags & 128 != 0:
+		result *= float(Cfg.ABILITIES[Cfg.Ability.BREAK_MAGIC]["wand_range_mult"])
+	return result
 
 
 func _draw_cone(origin: Vector2, facing: float, cone: float, radius: float, fill: Color, line: Color, fogs: Array) -> void:

@@ -33,7 +33,7 @@
 - **True Anti-Cheat Fog of War**: The server uses DDA raycasts to check visibility. Hidden enemy positions are **never sent to the client** until an ally has direct line of sight. Wallhacks and client tampering cannot reveal enemies!
 - **Directional Firing Cones & Auto-Shooting**: Soldiers automatically engage enemies entering their firing cone with a clear line of sight. Mechanical twitch-aim is replaced with positioning and sightline control.
 - **Top-Down Tactical Mage Sprites**: Custom top-down character sprite with forward aiming wand, dynamic team tinting, health/selection arcs, and squad badges.
-- **Voice-Activated Tactical Abilities**: Speak commands using your microphone (*"fog"*, *"scan"*, *"suppress"*, *"rush"*) through the browser Web Speech API, with instant keyboard fallbacks (`W`, `E`, `R`).
+- **Voice-Activated Tactical Abilities**: Speak commands using your microphone (*"fog"*, *"scan"*, *"rush"*, *"outrage"*, *"flash"*, *"break magic"*, *"fireball"*, *"invisible"*) through the browser Web Speech API, with instant keyboard fallbacks (`W`, `E`, `R`).
 - **Authentic ETH Zürich Polymensa Map**: Point-symmetrical competitive recreation of ETH Zürich's famous cafeteria: commercial slate kitchen, free-flow buffet counters with tray rails, dining hall with Swiss oak tables and canteen chairs, Mensa food trays, and panoramic Polyterrasse window seating. The client view automatically rotates $180^\circ$ for Player 2 so both players always defend their home base on the left side of their screen.
 
 ---
@@ -86,7 +86,12 @@ If you don't have Godot installed on your machine:
 | **Aim / Watch Angle** | **Right Click** or **Right-Drag** | *"Watch North"*, *"Aim South"*, *"Bravo watch Mid"* | Rotates firing cone to cover that corridor or landmark. |
 | **Fog Magic** | equipped slot (`W`/`E`/`R`) | *"Fog"*, *"Cast fog"* | Conjures vision-blocking fog a short distance ahead. |
 | **Motion Scan** | `E` | *"Scan"* | Emits radar pulse revealing moving enemies within 460px. |
-| **Suppressive Fire** | `R` | *"Suppress"* | Widens cone by 80%, increases fire rate by 30% for 6s. |
+| **Rush** | Equipped slot | *"Rush"* | Temporarily increases movement speed. |
+| **Outrage** | Equipped slot | *"Outrage"* | Doubles casting speed and reduces incoming damage by 20% for 2s. |
+| **Flash** | Equipped slot | *"Flash"* | Blinks forward in 0.1s and grants invulnerability during the blink. |
+| **F*** Magic** | Equipped slot | *"Break magic"* | Toggles between a close-range empowered stick stance and a boosted wand stance. |
+| **Fireball** | Equipped slot | *"Fireball"* | Wall-blocked circular blast with knockback and friendly fire. |
+| **Invisible** | Equipped slot | *"Invisible"* | Grants 5s invisibility and +50% speed; dealing damage breaks it. |
 | **Rush Boost** | `F` | *"Rush"*, *"Squad rush"* | Boosts soldier movement speed by +65% for 4s. |
 | **Join / Rematch** | `Enter` | *"Deploy"*, *"Rematch"*, *"Play again"* | Connects from lobby or requests a post-match rematch. |
 | **Toggle Microphone** | `V` or click **Mic** button | — | Starts/stops browser Web Speech recognition. |
@@ -129,10 +134,14 @@ In [`scripts/config.gd`](file:///Users/cyrill/hackathon-game/scripts/config.gd),
 
 ```gdscript
 const VOICE_PHRASES := {
-    Ability.FOG:      ["fog", "fog magic", "cast fog", "summon fog", "mist"],
-    Ability.SCAN:     ["scan", "scans", "scanning", "scanner", "radar", "ping"],
-    Ability.SUPPRESS: ["suppress", "suppressing", "suppression", "surpress", "cover fire"],
-    Ability.RUSH:     ["rush", "rushing", "brush", "sprint", "go go"],
+    Ability.FOG:         ["fog", "fog magic", "cast fog", "summon fog", "mist"],
+    Ability.SCAN:        ["scan", "scans", "scanning", "scanner", "radar", "ping"],
+    Ability.RUSH:        ["rush", "rushing", "brush", "sprint", "go go"],
+    Ability.OUTRAGE:     ["outrage", "rage", "enrage", "fury"],
+    Ability.FLASH:       ["flash", "blink", "flash forward"],
+    Ability.BREAK_MAGIC: ["break magic", "stick mode", "wand mode"],
+    Ability.FIREBALL:    ["fireball", "fire ball", "cast fireball"],
+    Ability.INVISIBLE:   ["invisible", "invisibility", "vanish", "cloak"],
 }
 ```
 
