@@ -74,25 +74,24 @@ If you don't have Godot installed on your machine:
 ## 🕹️ Controls & Voice Commands
 
 > 🎙️ **100% Hands-Free Playable**: The entire game can be played solely using spoken commands.  
-> 👉 For the complete syntax guide, phonetic dictionary, and callout map, read the **[Voice Control & Tactical Command Guide](VOICE_CONTROL.md)**.
+> 👉 For the complete syntax guide, phonetic dictionary, and steering guide, read the **[Voice Control & Tactical Command Guide](VOICE_CONTROL.md)**.
 
 | Action | Mouse / Keyboard | Spoken Voice Command | Description |
 |---|---|---|---|
 | **Select Soldier** | `1`, `2`, `3`, `4` (top row or numpad), `Tab`, or Click soldier | *"Alpha"*, *"Bravo"*, *"Charlie"*, *"Delta"*, *"Next"* | Directs the corresponding character; each card separately lists that character's weapon. |
-| **Move to Callout** | **Left Click** | *"Bravo go to kitchen"*, *"Mid"*, *"Charlie push enemy tables"* | A* path to a named point (labelled badges on the map). |
-| **Squad Move** | — | *"Squad to mid"*, *"Everyone fall back to base"* | Entire squad moves in a small formation. |
-| **Move in Direction** | — | *"Go left"*, *"Alpha move up"*, *"Advance"*, *"Fall back a bit"* | Walks that way (screen-relative) until a wall. |
+| **Drive / Steer** | — | *"Alpha forward"*, *"Bravo left 30"*, *"Advance"*, *"Fall back"*, *"Turn around"* | Drives soldier along their heading or turns by degree angle. |
+| **Move in Direction** | — | *"Go left"*, *"Alpha move up"*, *"North"*, *"Fall back a bit"* | Walks that way (screen-relative) until a wall. |
 | **Halt / Stop** | — | *"Stop"*, *"Alpha halt"*, *"Squad hold"* | Cancels path and immediately holds position. |
-| **Aim / Watch Angle** | **Right Click** or **Right-Drag** | *"Watch left"*, *"Bravo cover mid"*, *"Squad look up"* | Rotates firing cone to cover that direction or callout. |
-| **Chained Orders** | — | *"Bravo go to buffet and watch right"* | Several orders in one sentence; moves queue up. |
-| **Spell by Slot** | `W`, `E`, `R` | *"Spell one"*, *"Ability two"*, *"Cast E"*, *"Third spell mid"* | Casts the ability mapped to slot W / E / R for the active or named caster. |
+| **Aim / Watch Angle** | **Right Click** or **Right-Drag** | *"Watch left"*, *"Bravo face up"*, *"Cover right"* | Rotates firing cone to cover that direction. |
+| **Chained Orders** | — | *"Bravo go left and watch up"* | Several orders in one sentence; moves queue up. |
+| **Spell by Slot** | `W`, `E`, `R` | *"Spell one"*, *"Ability two"*, *"Cast E"*, *"Third spell right"* | Casts the ability mapped to slot W / E / R for the active or named caster. |
 | **Fog Magic** | Equipped slot (`W`/`E`/`R`) | *"Fog"*, *"Cast fog"* | Conjures vision-blocking fog a short distance ahead. |
 | **Motion Scan** | Equipped slot | *"Scan"* | Emits radar pulse revealing moving enemies within 460px. |
 | **Rush** | Equipped slot | *"Rush"*, *"Sprint"* | Boosts movement speed by +65% for 4s. |
 | **Outrage** | Equipped slot | *"Outrage"* | Doubles casting speed and reduces incoming damage by 20% for 2s. |
 | **Flash** | Equipped slot | *"Flash"* | Blinks forward in 0.1s and grants invulnerability during the blink. |
 | **F*** Magic** | Equipped slot | *"Break magic"* | Toggles between a close-range empowered stick stance and a boosted wand stance. |
-| **Fireball** | Equipped slot | *"Fireball"*, *"Fireball mid"* | Wall-blocked circular blast with knockback and friendly fire. |
+| **Fireball** | Equipped slot | *"Fireball"*, *"Fireball right"* | Wall-blocked circular blast with knockback and friendly fire. |
 | **Invisible** | Equipped slot | *"Invisible"* | Grants 5s invisibility and +50% speed; dealing damage breaks it. |
 | **Join / Rematch** | `Enter` | *"Deploy"*, *"Rematch"*, *"Play again"* | Connects from lobby or requests a post-match rematch. |
 | **Toggle Microphone** | `V` or click **Mic** button | — | Starts/stops browser Web Speech recognition. |
@@ -131,7 +130,7 @@ All balancing constants live in [`scripts/config.gd`](file:///Users/cyrill/hacka
 - **Abilities**: Adjust cooldowns, durations, and effects in the `ABILITIES` dictionary.
 
 ### How to Add or Edit Voice Phrases
-All voice vocabulary lives in [`scripts/config.gd`](file:///Users/cyrill/hackathon-game/scripts/config.gd): `VOICE_SUBJECTS` (who), `CALLOUTS` (named map points with their badge label, position and spoken words), `VOICE_DIRECTIONS`, `VOICE_ACTIONS` and `VOICE_PHRASES` (abilities). Add alternative spellings or common speech recognizer mishearings, then run:
+All voice vocabulary lives in [`scripts/config.gd`](file:///Users/cyrill/hackathon-game/scripts/config.gd): `VOICE_SUBJECTS` (who), `VOICE_DIRECTIONS`, `VOICE_STEER`, `VOICE_ACTIONS` and `VOICE_PHRASES` (abilities). Add alternative spellings or common speech recognizer mishearings, then run:
 ```bash
 GODOT=$(bash -c 'source tools/godot_path.sh; find_godot') $GODOT --headless --path . --script res://tests/test_voice_parser.gd
 ```

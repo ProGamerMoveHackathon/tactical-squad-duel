@@ -56,9 +56,10 @@ func _fit(text: String, fs: int, max_w: float, keep_end := false) -> String:
 # ---- Voice feedback ----------------------------------------------------------
 
 const VOICE_HINTS := [
-	"\"bravo go to kitchen\"", "\"squad watch right\"", "\"fireball mid\"",
-	"\"alpha fall back a bit\"", "\"charlie push enemy tables\"", "\"go up\"", "\"stop\"",
-	"\"spell two\"", "\"bravo cast E mid\"",
+	"\"bravo go left\"", "\"squad watch right\"", "\"fireball right\"",
+	"\"alpha forward\"", "\"alpha left 30\"", "\"bravo back 5\"", "\"charlie turn around\"",
+	"\"alpha fall back a bit\"", "\"charlie advance\"", "\"go up\"", "\"stop\"",
+	"\"spell two\"", "\"bravo cast E right\"",
 ]
 
 
@@ -347,7 +348,7 @@ func _draw() -> void:
 	var them_str: String = them if them != "" else "waiting for opponent..."
 	var tw := font.get_string_size(them_str, HORIZONTAL_ALIGNMENT_LEFT, -1, 14).x
 	_text(Vector2(vw - tw - 8, 16), them_str, 14, en_col)
-	_text_center(vw * 0.5, 16, "Voice: \"Bravo go to kitchen\" · \"Squad watch right\" · \"Fireball mid\" · \"Stop\"  |  Keys: LMB/RMB · 1-4 · W E R · V mic", 11, Color(0.8, 0.82, 0.85), false)
+	_text_center(vw * 0.5, 16, "Voice: \"Alpha forward\" · \"Alpha left 30\" · \"Bravo go left\" · \"Fireball right\" · \"Stop\"  |  Keys: LMB/RMB · 1-4 · W E R · V mic", 11, Color(0.8, 0.82, 0.85), false)
 
 	# Banners
 	var by := 52.0

@@ -57,6 +57,7 @@ var ability_flash := []
 var world_rotation := 0.0
 var voice_pings := []  # world markers for voice orders: {pos, label, t, max}
 var _voice_dest := {}  # soldier idx -> destination of its last voice move
+var _steer := {}  # soldier idx -> {heading, move, dist, dest, t} of its last steering order
 var _sel_lock_until := 0.0
 var _face_send_t := 0.0
 var _connected := false
@@ -336,12 +337,12 @@ func _build_menu() -> void:
 	box.add_child(status_label)
 	box.add_child(HSeparator.new())
 	var help := Label.new()
-	help.text = "VOICE COMMANDS  ([who] [action] [where], mic starts on Deploy, V toggles)\n" \
+	help.text = "VOICE COMMANDS  ([who] [action] [direction/slot], mic starts on Deploy, V toggles)\n" \
 		+ "- Who: \"Alpha\" / \"Bravo\" / \"Charlie\" / \"Delta\" / \"Squad\" (or nobody = selected soldier)\n" \
-		+ "- Places: \"Bravo go to kitchen\", \"Squad to mid\", \"Charlie push enemy tables\"\n" \
-		+ "- Directions: \"Go left\", \"Alpha move up\", \"Advance\", \"Fall back a bit\", \"Stop\"\n" \
-		+ "- Aim: \"Watch left\", \"Bravo cover mid\"   - Chain: \"Bravo go to buffet and watch right\"\n" \
-		+ "- Abilities: Fog, Scan, Rush, Outrage, Flash, Break Magic, \"Fireball kitchen\", Invisible\n\n" \
+		+ "- Movement: \"Go left\", \"Alpha move up\", \"Advance\", \"Fall back a bit\", \"Stop\"\n" \
+		+ "- Steering: \"Forward 5\", \"Alpha left 30\", \"Turn around\", \"Halt\"\n" \
+		+ "- Aim: \"Watch left\", \"Bravo face up\"   - Chain: \"Bravo go left and watch up\"\n" \
+		+ "- Abilities: Fog, Scan, Rush, Outrage, Flash, Break Magic, \"Fireball right\", Invisible, \"Spell two\"\n\n" \
 		+ "Fallback: LMB move · RMB face · 1-4 / numpad select · W E R ability slots · V mic toggle"
 	help.add_theme_font_size_override("font_size", 12)
 	help.add_theme_color_override("font_color", Color(0.82, 0.9, 0.96))
@@ -753,7 +754,7 @@ func _build_pause_menu() -> void:
 	controls_title.add_theme_font_size_override("font_size", 20)
 	controls.add_child(controls_title)
 	var help := Label.new()
-	help.text = "1–4 / Numpad: select soldier\nTab: next living soldier\nLeft click: move / select\nRight click: face direction\nW/E/R: equipped abilities\nVoice: fog, scan, rush, outrage, flash, break magic, fireball, invisible\nVoice: \"spell one / two / three\" casts the W / E / R slot\nV: voice toggle\nEscape: close menu"
+	help.text = "1–4 / Numpad: select soldier\nTab: next living soldier\nLeft click: move / select\nRight click: face direction\nW/E/R: equipped abilities\nVoice: fog, scan, rush, outrage, flash, break magic, fireball, invisible\nVoice: \"spell one / two / three\" casts the W / E / R slot\nVoice: \"alpha forward\" · \"back\" · \"left 30\" · \"turn around\" · \"stop\"\nV: voice toggle\nEscape: close menu"
 	help.add_theme_color_override("font_color", Color(0.9, 0.96, 1.0))
 	controls.add_child(help)
 
@@ -1356,15 +1357,12 @@ func _on_voice_command(cmd: Dictionary) -> void:
 		Voice.CmdType.HALT:
 			for i in units:
 				Net.c_unit_stop.rpc_id(1, i)
+				_steer.erase(i)
 				_ping(own[i]["pos"], "")
 
-		Voice.CmdType.MOVE_CALLOUT:
-			var cid: String = cmd["param"]
-			var target := map.callout_position(cid, slot)
-			var spots := _formation(target, units.size())
-			for k in units.size():
-				_voice_move(units[k], spots[k], cmd.get("queue", false))
-			_ping(target, MapData.callout_label(cid))
+		Voice.CmdType.STEER:
+			for i in units:
+				_voice_steer(i, cmd)
 
 		Voice.CmdType.MOVE_DIR:
 			var dir := _world_dir(cmd["dir"])
@@ -1382,20 +1380,11 @@ func _on_voice_command(cmd: Dictionary) -> void:
 				Net.c_unit_face.rpc_id(1, i, own[i]["pos"] + dir * 100.0)
 				_ping(own[i]["pos"] + dir * 48.0, "")
 
-		Voice.CmdType.WATCH_CALLOUT:
-			var cid: String = cmd["param"]
-			var target := map.callout_position(cid, slot)
-			for i in units:
-				Net.c_unit_face.rpc_id(1, i, target)
-			_ping(target, MapData.callout_label(cid))
-
 		Voice.CmdType.ABILITY:
 			var ab: int = cmd["ability"]
 			var caster: Dictionary = own[selected]
 			var target: Vector2 = caster["pos"] + Vector2.from_angle(caster["facing"]) * 160.0
-			if cmd.get("target", "") != "":
-				target = map.callout_position(cmd["target"], slot)
-			elif cmd.get("dir", Vector2.ZERO) != Vector2.ZERO:
+			if cmd.get("dir", Vector2.ZERO) != Vector2.ZERO:
 				target = caster["pos"] + _world_dir(cmd["dir"]) * 200.0
 			if _use_ability_at(ab, target, true) and ab == Cfg.Ability.FIREBALL:
 				_ping(target, "FIREBALL")
@@ -1404,6 +1393,42 @@ func _on_voice_command(cmd: Dictionary) -> void:
 func _voice_move(idx: int, dest: Vector2, queue: bool) -> void:
 	Net.c_unit_move.rpc_id(1, idx, dest, queue)
 	_voice_dest[idx] = dest
+	_steer.erase(idx)
+
+
+## Drives a soldier relative to where it faces. Forward / back walk along the
+## heading (backing up keeps facing forward); a turn bends a walk in progress or
+## turns a standing soldier on the spot.
+func _voice_steer(i: int, cmd: Dictionary) -> void:
+	var o: Dictionary = own[i]
+	var moving: bool = o["target"].distance_to(o["pos"]) > 4.0
+	var st: Dictionary = _steer.get(i, {})
+	# The last steering order is still in charge if it was just given (the
+	# snapshot may lag) or the soldier is still walking toward its destination.
+	var live: bool = not st.is_empty() and (time - st["t"] < 1.0 or (moving and o["target"].distance_to(st["dest"]) < Cfg.TILE))
+	var heading: Vector2 = st["heading"] if live else Vector2.from_angle(o["facing"])
+	heading = heading.rotated(deg_to_rad(cmd["turn"]))
+	var move: int = cmd["move"]
+	var max_d: float = Cfg.VOICE_STEP_FAR
+	if cmd["tiles"] > 0:
+		max_d = cmd["tiles"] * Cfg.TILE
+	elif cmd["dist"] == "short":
+		max_d = Cfg.VOICE_STEP_SHORT
+	elif move == 0 and live and st["move"] != 0:
+		max_d = st["dist"]
+	if move == 0 and moving:
+		move = st["move"] if live and st["move"] != 0 else 1
+	if move == 0:
+		Net.c_unit_face.rpc_id(1, i, o["pos"] + heading * 100.0)
+		_steer[i] = {"heading": heading, "move": 0, "dist": 0.0, "dest": o["pos"], "t": time}
+		_ping(o["pos"] + heading * 48.0, "")
+		return
+	var dest := _dir_destination(o["pos"], heading * move, max_d)
+	_voice_move(i, dest, false)
+	if move < 0:
+		Net.c_unit_face.rpc_id(1, i, o["pos"] + heading * 100.0)
+	_steer[i] = {"heading": heading, "move": move, "dist": max_d, "dest": dest, "t": time}
+	_ping(dest, "")
 
 
 ## Soldiers a voice order applies to: the named one, the whole squad, or the

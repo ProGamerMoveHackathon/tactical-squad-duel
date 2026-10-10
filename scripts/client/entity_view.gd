@@ -52,11 +52,6 @@ func _draw() -> void:
 		draw_line(p + Vector2(-6, -6), p + Vector2(6, 6), col, 2.5)
 		draw_line(p + Vector2(-6, 6), p + Vector2(6, -6), col, 2.5)
 
-	# Voice callouts (always visible; the label is what the player says)
-	for cid in MapData.callout_ids():
-		var col := Color(1.0, 0.55, 0.5) if cid.begins_with("enemy_") else Color(0.45, 0.85, 1.0)
-		_draw_callout_badge(game.map.callout_position(cid, my_team), MapData.callout_label(cid), col)
-
 	# Vision/fire cones stay hidden throughout deployment and countdown.
 	if game.state == Cfg.State.PLAYING:
 		for o in game.own:
@@ -298,20 +293,6 @@ func _draw_dashed(a: Vector2, b: Vector2, col: Color) -> void:
 	while t < length:
 		draw_line(a + d * t, a + d * minf(t + 8.0, length), col, 2.0)
 		t += 14.0
-
-
-func _draw_callout_badge(p: Vector2, text: String, col: Color) -> void:
-	draw_circle(p, 3.0, Color(col, 0.8))
-	draw_arc(p, 8.0, 0.0, TAU, 20, Color(col, 0.35), 1.0)
-	# Pill drawn counter-rotated so it stays upright for the rotated Red view.
-	draw_set_transform(p, -game.world_rotation)
-	var fs := 10
-	var w := font.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x
-	var r := Rect2(-w * 0.5 - 5.0, -27.0, w + 10.0, 15.0)
-	draw_rect(r, Color(0.02, 0.03, 0.05, 0.62))
-	draw_rect(r, Color(col, 0.45), false, 1.0)
-	draw_string(font, Vector2(-w * 0.5, -16.0), text, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, Color(col, 0.95))
-	draw_set_transform_matrix(Transform2D.IDENTITY)
 
 
 func _draw_voice_pings() -> void:

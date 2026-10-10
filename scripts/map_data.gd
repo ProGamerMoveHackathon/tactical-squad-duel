@@ -120,37 +120,6 @@ func spawn_facing(team: int) -> float:
 	return 0.0 if team == 0 else PI
 
 
-## All callout ids, including the "enemy_<id>" twins of mirrored callouts.
-static func callout_ids() -> Array:
-	var out := []
-	for id in Cfg.CALLOUTS:
-		out.append(id)
-		if Cfg.CALLOUTS[id]["mirror"]:
-			out.append("enemy_" + id)
-	return out
-
-
-static func callout_label(callout_id: String) -> String:
-	var enemy := callout_id.begins_with("enemy_")
-	var base_id := callout_id.trim_prefix("enemy_")
-	if not Cfg.CALLOUTS.has(base_id):
-		return callout_id.to_upper()
-	return ("ENEMY " if enemy else "") + str(Cfg.CALLOUTS[base_id]["label"])
-
-
-## World position of a callout as seen by `team` (Vector2.ZERO if unknown).
-func callout_position(callout_id: String, team: int) -> Vector2:
-	var enemy := callout_id.begins_with("enemy_")
-	var base_id := callout_id.trim_prefix("enemy_")
-	if not Cfg.CALLOUTS.has(base_id):
-		return Vector2.ZERO
-	var p: Vector2 = Cfg.CALLOUTS[base_id]["tile"] * float(T)
-	if enemy:
-		p = Cfg.WORLD_SIZE - p
-	if team == 1:
-		p = Cfg.WORLD_SIZE - p
-	return p
-
 
 ## How far a circle of radius r can walk from `from` along unit `dir` before
 ## touching a wall (capped at max_d).

@@ -534,6 +534,8 @@ func _physics_process(dt: float) -> void:
 					for s: Soldier in squads[team]:
 						s.pos = map.spawn_position(team, s.idx)
 						s.path.clear()
+						s.facing = map.spawn_facing(team)
+						s.watch_angle = s.facing
 				state = Cfg.State.COUNTDOWN
 				countdown = Cfg.COUNTDOWN
 				for t in 2:
