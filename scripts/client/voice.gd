@@ -75,10 +75,22 @@ const JS_SETUP := """
       rec.interimResults = true;
       rec.maxAlternatives = 3;
       rec.lang = 'en-US';
-      rec.onstart = function () { v.active = true; v.session++; v.status = 'listening'; };
-      rec.onspeechstart = function () { v.speaking = true; };
-      rec.onspeechend = function () { v.speaking = false; };
+      rec.onstart = function () {
+        v.active = true;
+        v.session++;
+        v.status = 'listening';
+        console.log('[TSD Voice] recognition started, session ' + v.session);
+      };
+      rec.onspeechstart = function () {
+        v.speaking = true;
+        console.log('[TSD Voice] audio/speech sound detected!');
+      };
+      rec.onspeechend = function () {
+        v.speaking = false;
+        console.log('[TSD Voice] speech sound paused');
+      };
       rec.onerror = function (e) {
+        console.warn('[TSD Voice] event error:', e.error);
         if (e.error === 'no-speech' || e.error === 'aborted') return;
         if (FATAL[e.error]) { want = false; v.status = FATAL[e.error]; }
         else v.status = 'error: ' + e.error;
@@ -86,13 +98,13 @@ const JS_SETUP := """
       rec.onend = function () {
         v.active = false;
         v.speaking = false;
-        // Chrome ends sessions on silence / after ~60s: restart while wanted.
         if (want) scheduleRestart(150);
       };
       rec.onresult = function (ev) {
         for (var i = ev.resultIndex; i < ev.results.length; i++) {
           var r = ev.results[i], alts = [];
           for (var j = 0; j < r.length; j++) alts.push(r[j].transcript);
+          console.log('[TSD Voice] heard:', alts[0], '(final=' + r.isFinal + ')');
           v.queue.push({ key: v.session + ':' + i, alts: alts, final: r.isFinal });
         }
       };
