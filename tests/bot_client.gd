@@ -14,6 +14,7 @@ var stats := {"snaps": 0, "shots": 0, "kills": 0, "max_enemies_seen": 0, "incomi
 var phase := 0
 var url := "ws://127.0.0.1:9080"
 var bot_name := "Bot"
+var loadout_sent := false
 
 
 func _initialize() -> void:
@@ -31,6 +32,9 @@ func _initialize() -> void:
 
 func _on_snap(d: Dictionary) -> void:
 	stats["snaps"] += 1
+	if d["st"] == Cfg.State.LOADOUT and not loadout_sent:
+		loadout_sent = true
+		net.c_loadout.rpc_id(1, Cfg.DEFAULT_LOADOUTS.duplicate())
 	if d["st"] != last_state:
 		print("[%s] state -> %d" % [bot_name, d["st"]])
 		last_state = d["st"]

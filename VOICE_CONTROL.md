@@ -49,7 +49,7 @@ Voice uses the browser **Web Speech API** through Godot's `JavaScriptBridge`.
 | `One` / `Two` / `Three` | only at the **start** (`"two, go left"`), because recognizers often write "to" as "two" |
 | *(nobody)* | the currently selected soldier |
 
-Naming a single soldier also **selects** them, so a follow-up like `"smoke"` comes from the soldier you just talked to. Squad orders don't change the selection.
+Naming a single soldier also **selects** them, so a follow-up like `"fireball mid"` is aimed from the soldier you just talked to. Squad orders don't change the selection. Abilities are always cast by every living squad member that has them equipped and enough MP.
 
 **Chaining**: join orders with `and` / `then`. An order without a name reuses the last soldier you named, and a second move for the same soldier is **queued** after the first:
 - `"Bravo go to kitchen and watch right"`
@@ -68,8 +68,8 @@ Naming a single soldier also **selects** them, so a follow-up like `"smoke"` com
 | **Distance** | `"... a bit"` / `"step back"` · `"... all the way"` / `"far"` | Short step (~3 tiles) · go until the wall. |
 | **Stop** | `"Stop"`, `"Halt"`, `"Alpha hold"`, `"Squad hold position"` | Cancels the path immediately. |
 | **Watch / aim** | `"Watch left"`, `"Bravo face up"`, `"Alpha cover mid"`, `"Squad look at the cashier"`, `"Turn right"` | Locks the firing cone toward a direction or callout. Moving keeps the angle. |
-| **Smoke** | `"Smoke"`, `"Smoke mid"`, `"Charlie smoke the buffet"`, `"Smoke left"` | At a callout, in a direction, or 160px ahead (server clamps throw range). |
-| **Scan / Suppress / Rush** | `"Scan"`, `"Suppress"` / `"Cover fire"`, `"Rush"` / `"Sprint"` | Cast by the selected (or named) soldier. |
+| **Fireball** | `"Fireball"`, `"Fireball mid"`, `"Charlie fireball the buffet"`, `"Fireball left"` | At a callout, in a direction, or 160px ahead (server clamps cast range). |
+| **Other abilities** | `"Fog"`, `"Scan"`, `"Rush"` / `"Sprint"`, `"Outrage"`, `"Flash"`, `"Break magic"`, `"Invisible"` | Casts the equipped ability for every eligible squad member, with server-side MP and cooldown checks. |
 | **Match flow** | `"Deploy"` (menu), `"Rematch"` / `"Play again"` | Join or vote for a rematch. |
 
 ---
@@ -132,7 +132,7 @@ Directions are **screen-relative** and mean the same thing for both teams:
 - When idle it cycles example phrases. If the mic is blocked, it tells you how to fix it.
 
 **On the map**
-- A green ping marks every voice order (the destination, the watched callout, or the smoke target), with the callout name.
+- A green ping marks every voice order (the destination, the watched callout, or the fireball target), with the callout name.
 - Dashed lines show where each soldier is walking, not just the selected one.
 
 **Bottom bar**: mic status, a **Mic ON/OFF** button, and the enemies-alive counter. A radio chirp plays for every recognised order.
@@ -143,7 +143,7 @@ Directions are **screen-relative** and mean the same thing for both teams:
 
 1. Use a headset mic in noisy rooms. Laptop mics also pick up teammates talking.
 2. Short phrases work best: `"Bravo kitchen"` is as good as `"Bravo, please go to the kitchen"`.
-3. Orders fire as soon as your words have been stable for ~0.4s, so you don't have to wait for the browser to finish a sentence. A target-less `"smoke ..."` waits for the end of the sentence so it can pick up the target.
+3. Orders fire as soon as your words have been stable for ~0.4s, so you don't have to wait for the browser to finish a sentence. A target-less `"fireball ..."` waits for the end of the sentence so it can pick up the target.
 4. If something is misheard, check the voice panel to see exactly what the browser heard.
 
 ---
@@ -169,7 +169,7 @@ Phrases match on whole words and the **longest phrase wins** (`"kitchen door"` b
 godot --headless --path . --script res://tests/test_voice_parser.gd
 
 # Native client that "speaks" a list of commands once the match runs
-godot --path . -- --auto --name=Blue "--say=bravo go to kitchen;squad watch right;smoke mid"
+godot --path . -- --auto --name=Blue "--say=bravo go to kitchen;squad watch right;fireball mid"
 ```
 In the browser console you can also simulate the recognizer:
 ```js

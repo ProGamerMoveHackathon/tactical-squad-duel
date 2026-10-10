@@ -25,7 +25,7 @@ func _draw() -> void:
 	if reveal_all:
 		draw_rect(Rect2(Vector2.ZERO, Cfg.WORLD_SIZE), Color.WHITE)
 		return
-	var smokes: Array = game.smoke_list()
+	var fogs: Array = game.fog_list()
 	var points := PackedVector2Array()
 	var indices := PackedInt32Array()
 	for o in game.own:
@@ -36,9 +36,9 @@ func _draw() -> void:
 		# Cone
 		var half := Cfg.VIEW_CONE * 0.5
 		var steps := int(ceil(Cfg.VIEW_CONE / CONE_STEP))
-		_add_fan(points, indices, origin, facing - half, Cfg.VIEW_CONE, steps, Cfg.VIEW_RANGE, smokes)
+		_add_fan(points, indices, origin, facing - half, Cfg.VIEW_CONE, steps, Cfg.VIEW_RANGE, fogs)
 		# Close-range awareness circle
-		_add_fan(points, indices, origin, 0.0, TAU, CIRCLE_SEGMENTS, Cfg.AWARE_RADIUS, smokes)
+		_add_fan(points, indices, origin, 0.0, TAU, CIRCLE_SEGMENTS, Cfg.AWARE_RADIUS, fogs)
 	if points.is_empty():
 		return
 	var colors := PackedColorArray()
@@ -48,13 +48,13 @@ func _draw() -> void:
 
 
 func _add_fan(points: PackedVector2Array, indices: PackedInt32Array, origin: Vector2, start: float,
-		span: float, steps: int, radius: float, smokes: Array) -> void:
+		span: float, steps: int, radius: float, fogs: Array) -> void:
 	var base := points.size()
 	points.append(origin)
 	for i in steps + 1:
 		var a := start + span * float(i) / steps
 		var d := Vector2.from_angle(a)
-		var dist: float = game.map.sight_distance(origin, d, radius, smokes)
+		var dist: float = game.map.sight_distance(origin, d, radius, fogs)
 		points.append(origin + d * dist)
 	for i in steps:
 		indices.append(base)

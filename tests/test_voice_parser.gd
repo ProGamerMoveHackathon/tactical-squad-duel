@@ -55,14 +55,19 @@ func _init() -> void:
 		["squad hold", T.HALT, -1, null],
 		["everyone hold position", T.HALT, -1, null],
 		# Abilities
-		["smoke", T.ABILITY, -2, Cfg.Ability.SMOKE],
-		["smoke mid", T.ABILITY, -2, Cfg.Ability.SMOKE],
+		["fog", T.ABILITY, -2, Cfg.Ability.FOG],
+		["cast fog", T.ABILITY, -2, Cfg.Ability.FOG],
 		["scan", T.ABILITY, -2, Cfg.Ability.SCAN],
-		["suppress", T.ABILITY, -2, Cfg.Ability.SUPPRESS],
-		["cover fire", T.ABILITY, -2, Cfg.Ability.SUPPRESS],
 		["squad rush", T.ABILITY, -1, Cfg.Ability.RUSH],
 		["bravo sprint", T.ABILITY, 1, Cfg.Ability.RUSH],
-		["charlie smoke the buffet", T.ABILITY, 2, Cfg.Ability.SMOKE],
+		["outrage", T.ABILITY, -2, Cfg.Ability.OUTRAGE],
+		["flash forward", T.ABILITY, -2, Cfg.Ability.FLASH],
+		["break magic", T.ABILITY, -2, Cfg.Ability.BREAK_MAGIC],
+		["switch weapon", T.ABILITY, -2, Cfg.Ability.BREAK_MAGIC],
+		["fireball", T.ABILITY, -2, Cfg.Ability.FIREBALL],
+		["fireball mid", T.ABILITY, -2, Cfg.Ability.FIREBALL],
+		["charlie fireball the buffet", T.ABILITY, 2, Cfg.Ability.FIREBALL],
+		["invisible", T.ABILITY, -2, Cfg.Ability.INVISIBLE],
 		# Selection
 		["alpha", T.SELECT, 0, null],
 		["bravo", T.SELECT, 1, null],
@@ -105,7 +110,7 @@ func _init() -> void:
 				raw, c[1], c[2], str(c[3]), actual_t, actual_s, str(actual_p)])
 
 	# Chained orders: later orders reuse the previous soldier.
-	var chain: Array = Voice.parse_utterance("bravo go to kitchen and then watch left and smoke")
+	var chain: Array = Voice.parse_utterance("bravo go to kitchen and then watch left and fog")
 	var chain_ok: bool = chain.size() == 3 \
 		and chain[0]["type"] == T.MOVE_CALLOUT and chain[0]["subject"] == 1 \
 		and chain[1]["type"] == T.WATCH_DIR and chain[1]["subject"] == 1 \
@@ -124,9 +129,9 @@ func _init() -> void:
 		failed += 1
 		print("  [FAIL] chained orders: ", chain, " / ", chain2)
 
-	# Smoke without a target waits for the final result; with a target it can fire early.
-	var timing_ok: bool = not Voice.is_complete(Voice.parse_voice("smoke")) \
-		and Voice.is_complete(Voice.parse_voice("smoke kitchen")) \
+	# Fireball without a target waits for the final result; with a target it can fire early.
+	var timing_ok: bool = not Voice.is_complete(Voice.parse_voice("fireball")) \
+		and Voice.is_complete(Voice.parse_voice("fireball kitchen")) \
 		and Voice.is_complete(Voice.parse_voice("scan"))
 	if timing_ok:
 		passed += 1

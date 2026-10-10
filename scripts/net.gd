@@ -83,6 +83,12 @@ func c_hello(player_name: String) -> void:
 
 
 @rpc("any_peer", "call_remote", "reliable")
+func c_loadout(ability_masks: Array) -> void:
+	if server:
+		server.on_loadout(multiplayer.get_remote_sender_id(), ability_masks)
+
+
+@rpc("any_peer", "call_remote", "reliable")
 func c_select(idx: int) -> void:
 	if server:
 		server.on_select(multiplayer.get_remote_sender_id(), idx)

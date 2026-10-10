@@ -376,10 +376,10 @@ func _history_entry(key: String, text: String) -> Dictionary:
 # Command helpers
 # --------------------------------------------------------------------------
 
-## Commands that are safe to run from interim text. A smoke without a target
-## waits for the final result, because "smoke ... kitchen" is still coming.
+## Commands that are safe to run from interim text. A fireball without a target
+## waits for the final result, because "fireball ... kitchen" is still coming.
 static func is_complete(cmd: Dictionary) -> bool:
-	if cmd.get("type") == CmdType.ABILITY and cmd.get("ability") == Cfg.Ability.SMOKE:
+	if cmd.get("type") == CmdType.ABILITY and cmd.get("ability") == Cfg.Ability.FIREBALL:
 		return cmd.get("target", "") != "" or cmd.get("dir", Vector2.ZERO) != Vector2.ZERO
 	return true
 
@@ -614,9 +614,6 @@ static func _parse_segment(text: String, inherited: int) -> Dictionary:
 	if not _find(text, "halt").is_empty():
 		return {"type": CmdType.HALT, "subject": subject}
 
-	if not named and not _find(text, "next").is_empty():
-		return {"type": CmdType.SELECT_NEXT, "subject": -2}
-
 	hit = _find(text, "abilities")
 	if not hit.is_empty():
 		text = _cut(text, hit)
@@ -624,6 +621,9 @@ static func _parse_segment(text: String, inherited: int) -> Dictionary:
 		return {"type": CmdType.ABILITY, "ability": hit[0], "subject": subject,
 			"target": callout[0] if not callout.is_empty() else "",
 			"dir": _direction(text) if callout.is_empty() else Vector2.ZERO}
+
+	if not named and not _find(text, "next").is_empty():
+		return {"type": CmdType.SELECT_NEXT, "subject": -2}
 
 	hit = _find(text, "watch")
 	if not hit.is_empty():

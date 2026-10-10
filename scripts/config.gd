@@ -14,6 +14,9 @@ const WORLD_SIZE := Vector2(MAP_W * TILE, MAP_H * TILE)
 # --- Soldiers -------------------------------------------------------------
 const SOLDIER_RADIUS := 11.0
 const SOLDIER_HP := 100
+const SOLDIER_MP := 100.0
+const MP_RECOVERY_TIME := 16.0
+const MP_RESTORE_PER_DAMAGE := 0.35
 const HEALTH_REGEN_DELAY := 10.0
 const HEALTH_REGEN_RATE := 5.0
 const MOVE_SPEED := 120.0              # px / s
@@ -26,7 +29,7 @@ const CONTINUE_MOVE_WHEN_DESELECTED := true
 const VIEW_RANGE := 420.0
 const VIEW_CONE := deg_to_rad(120.0)   # full angle
 const AWARE_RADIUS := 64.0             # 360 degree "hearing" radius
-const SMOKE_SEE_DEPTH := 22.0          # how far you can see into a smoke cloud
+const FOG_SEE_DEPTH := 22.0            # how far you can see into a fog cloud
 
 # --- Weapons --------------------------------------------------------------
 enum Weapon { RIFLE, SMG, SHOTGUN }
@@ -40,20 +43,32 @@ const SQUAD_WEAPONS := [Weapon.RIFLE, Weapon.SMG, Weapon.SHOTGUN, Weapon.RIFLE]
 const REACTION_TIME := 0.22  # delay before a soldier opens fire on a newly acquired target
 
 # --- Abilities ------------------------------------------------------------
-enum Ability { SMOKE, SCAN, SUPPRESS, RUSH }
+enum Ability { FOG, SCAN, RUSH, OUTRAGE, FLASH, BREAK_MAGIC, FIREBALL, INVISIBLE }
+const ABILITY_COUNT := 8
 const ABILITIES := {
-	Ability.SMOKE: {"name": "Smoke", "key": "Q", "cooldown": 22.0, "duration": 9.0, "radius": 74.0, "throw_range": 340.0},
-	Ability.SCAN: {"name": "Scan", "key": "E", "cooldown": 18.0, "duration": 2.5, "radius": 460.0},
-	Ability.SUPPRESS: {"name": "Suppress", "key": "R", "cooldown": 20.0, "duration": 6.0, "cone_mult": 1.8, "accuracy_mult": 0.55, "rate_mult": 1.3},
-	Ability.RUSH: {"name": "Rush", "key": "F", "cooldown": 16.0, "duration": 4.0, "speed_mult": 1.65},
+	Ability.FOG: {"name": "Fog", "description": "Creates a vision-blocking fog cloud in front of each caster.", "mp_cost": 50.0, "cooldown": 10.0, "duration": 9.0, "radius": 74.0, "throw_distance": 96.0},
+	Ability.SCAN: {"name": "Scan", "description": "Reveals recently moving enemies near each caster.", "mp_cost": 35.0, "cooldown": 7.0, "duration": 2.5, "radius": 460.0},
+	Ability.RUSH: {"name": "Rush", "description": "Increases movement speed by 65% for 4 seconds.", "mp_cost": 45.0, "cooldown": 9.0, "duration": 4.0, "speed_mult": 1.65},
+	Ability.OUTRAGE: {"name": "Outrage", "description": "Doubles attack speed and reduces damage taken by 20% for 2 seconds.", "mp_cost": 60.0, "cooldown": 12.0, "duration": 2.0, "rate_mult": 2.0, "damage_taken_mult": 0.8},
+	Ability.FLASH: {"name": "Flash", "description": "Blinks forward in 0.1 seconds and grants invulnerability during the blink.", "mp_cost": 45.0, "cooldown": 8.0, "duration": 0.1, "distance": 150.0},
+	Ability.BREAK_MAGIC: {"name": "F*** Magic", "description": "First cast: dash into stick stance (+25% speed, -80% range, +200% damage for 3s). Recast: fire a huge 5x-damage projectile, jump backward, and return to the wand.", "mp_cost": 55.0, "cooldown": 8.0, "dash_duration": 0.12, "dash_distance": 105.0, "return_duration": 0.2, "return_distance": 120.0, "stick_speed_mult": 1.25, "stick_range_mult": 0.2, "stick_damage_mult": 3.0, "burst_duration": 3.0, "wand_rate_mult": 1.5, "wand_range_mult": 1.35, "return_projectile_damage_mult": 5.0, "return_projectile_radius": 18.0},
+	Ability.FIREBALL: {"name": "Fireball", "description": "Blasts the selected area for damage and knockback. Walls block it; friendly fire is enabled.", "mp_cost": 70.0, "cooldown": 13.0, "cast_range": 320.0, "radius": 78.0, "damage": 42, "knockback": 76.0},
+	Ability.INVISIBLE: {"name": "Invisible", "description": "Become invisible and move 50% faster for 5 seconds. Dealing damage ends the effect.", "mp_cost": 65.0, "cooldown": 16.0, "duration": 5.0, "speed_mult": 1.5},
 }
+## Three equipped abilities per squad member. Bit N corresponds to Ability N.
+const DEFAULT_LOADOUTS := [67, 28, 97, 134]
+const ABILITY_SLOT_KEYS := ["W", "E", "R"]
 ## Spoken phrases that trigger each ability (lower-case, matched as whole words /
 ## word sequences). Includes a few common speech-recognition mishearings.
 const VOICE_PHRASES := {
-	Ability.SMOKE: ["smoke", "smoked", "smokes", "smoking", "smog", "smoky", "pop smoke", "smoke grenade", "throw smoke"],
+	Ability.FOG: ["fog", "fog magic", "cast fog", "summon fog", "mist", "cast mist"],
 	Ability.SCAN: ["scan", "scans", "scanning", "scanner", "radar", "ping", "sonar", "pulse"],
-	Ability.SUPPRESS: ["suppress", "suppressing", "suppression", "surpress", "oppress", "cover fire", "covering fire", "suppressing fire"],
 	Ability.RUSH: ["rush", "rushing", "russia", "brush", "sprint", "dash", "boost", "go go"],
+	Ability.OUTRAGE: ["outrage", "rage", "enrage", "fury"],
+	Ability.FLASH: ["flash", "blink", "flash forward"],
+	Ability.BREAK_MAGIC: ["break magic", "stick mode", "wand mode", "switch weapon"],
+	Ability.FIREBALL: ["fireball", "fire ball", "cast fireball"],
+	Ability.INVISIBLE: ["invisible", "invisibility", "vanish", "cloak"],
 }
 
 # --- Voice command vocabulary ------------------------------------------------
@@ -141,14 +156,11 @@ const SCAN_MOVE_MEMORY := 1.5
 const COUNTDOWN := 3.0
 const DEPLOYMENT_DURATION := 2.4
 
-enum State { WAITING, DEPLOYMENT, COUNTDOWN, PLAYING, ENDED }
+enum State { WAITING, LOADOUT, DEPLOYMENT, COUNTDOWN, PLAYING, ENDED }
 
 const TEAM_COLORS := [Color(0.30, 0.65, 1.0), Color(1.0, 0.38, 0.32)]
 const TEAM_NAMES := ["Blue", "Red"]
 
 
-static func weapon_cone(weapon: int, suppressed: bool) -> float:
-	var c: float = deg_to_rad(WEAPONS[weapon]["cone"])
-	if suppressed:
-		c = min(c * ABILITIES[Ability.SUPPRESS]["cone_mult"], VIEW_CONE)
-	return c
+static func weapon_cone(weapon: int) -> float:
+	return deg_to_rad(WEAPONS[weapon]["cone"])
