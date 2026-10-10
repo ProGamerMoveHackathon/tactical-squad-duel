@@ -1,93 +1,256 @@
-# Tactical Squad Duel
+# 🎯 Tactical Squad Duel
 
-Competitive top-down 1 vs 1 tactical shooter for the browser (Godot 4.7, Compatibility renderer).
-Each player commands a squad of 3 soldiers (Rifle, SMG, Shotgun) but controls only one at a time.
-Visibility, shooting, damage and abilities are all decided by a dedicated **authoritative Godot server**;
-clients only receive the enemy soldiers their squad can actually see.
+> **Competitive Top-Down 1 vs 1 Tactical Squad Shooter for Web**  
+> Built with **Godot 4.7** (GL Compatibility) · **Authoritative Dedicated Server** · **Voice-Controlled Abilities** · **Server-Side Fog of War**
 
-## Quick start (everything on your own PC)
+[![Export Web Client](https://github.com/ProGamerMoveHackathon/tactical-squad-duel/actions/workflows/export_web.yml/badge.svg)](https://github.com/ProGamerMoveHackathon/tactical-squad-duel/actions/workflows/export_web.yml)
 
-Requirements: Godot 4.7.x (with the **Web** export templates), Python 3.
+---
+
+## 📖 Table of Contents
+1. [Game Concept & Features](#-game-concept--features)
+2. [Quick Start: Run the Game in 10 Seconds](#-quick-start-run-the-game-in-10-seconds)
+3. [Controls & Voice Commands](#-controls--voice-commands)
+4. [Developer Guide: How to Work on the Game](#-developer-guide-how-to-work-on-the-game)
+   - [Prerequisites & Setup](#prerequisites--setup)
+   - [Working in the Godot Editor](#working-in-the-godot-editor)
+   - [How to Tweak Weapons, Vision & Stats](#how-to-tweak-weapons-vision--stats)
+   - [How to Add or Edit Voice Phrases](#how-to-add-or-edit-voice-phrases)
+   - [How the Symmetrical Map Works](#how-the-symmetrical-map-works)
+   - [Automated Bot Testing (No Browser Needed)](#automated-bot-testing-no-browser-needed)
+5. [Architecture & Codebase Overview](#-architecture--codebase-overview)
+6. [Hosting & Deploying on the Hackathon VM](#-hosting--deploying-on-the-hackathon-vm)
+7. [Troubleshooting & FAQ](#-troubleshooting--faq)
+
+---
+
+## 🎮 Game Concept & Features
+
+*Tactical Squad Duel* is a 1 vs 1 competitive top-down shooter. Each player commands a small tactical fireteam (3 soldiers: **Rifle**, **SMG**, **Shotgun**), but directly directs one soldier at a time.
+
+- **Authoritative Server Simulation**: All movements, collisions, line-of-sight calculations, weapon firing, damage, and cooldowns run on the dedicated server.
+- **True Anti-Cheat Fog of War**: The server uses DDA raycasts to check visibility. Hidden enemy positions are **never sent to the client** until an ally has direct line of sight. Wallhacks and client tampering cannot reveal enemies!
+- **Directional Firing Cones & Auto-Shooting**: Soldiers automatically engage enemies entering their firing cone with a clear line of sight. Mechanical twitch-aim is replaced with positioning and sightline control.
+- **Voice-Activated Tactical Abilities**: Speak commands using your microphone (*"smoke"*, *"scan"*, *"suppress"*, *"rush"*) through the browser Web Speech API, with instant keyboard fallbacks (`Q`, `E`, `R`, `F`).
+- **Symmetrical Battlefield**: Symmetrical point-mirrored map ensuring competitive fairness. The client view automatically rotates $180^\circ$ for Player 2 so both players always defend their home base on the left side of their screen.
+
+---
+
+## ⚡ Quick Start: Run the Game in 10 Seconds
+
+### The One-Command Run (Mac & Linux)
+From the repository root, run:
 
 ```bash
-./run_local.sh          # exports the web build, starts game server + web server, opens 2 tabs
-./run_local.sh --no-export   # skip the export if nothing changed
+./run_local.sh
 ```
 
-Then play one side in each tab: <http://localhost:8080/?name=Blue> and <http://localhost:8080/?name=Red>.
-Add `&auto=1` to the URL to skip the menu and connect immediately.
+**What this does automatically:**
+1. Exports the web build into `build/web/` (if not already built).
+2. Starts the authoritative Godot server on `ws://localhost:9080`.
+3. Starts a local lightweight web server on `http://localhost:8080`.
+4. Opens **two browser tabs** (one for Blue squad, one for Red squad).
+5. In each tab, click **Deploy** (or press Enter) to connect and start the match!
 
-Manual steps if you prefer:
+> **Tip**: Skip rebuilding the web export on subsequent runs by passing `--no-export`:
+> ```bash
+> ./run_local.sh --no-export
+> ```
+> To stop both servers, simply press `Ctrl + C` in the terminal.
+
+### Playing Without Installing Godot
+If you don't have Godot installed on your machine:
+1. Go to the **Actions** tab on our GitHub repository.
+2. Click on the latest workflow run and download the `tactical-squad-duel-web` artifact.
+3. Unzip it and start the web server:
+   ```bash
+   python3 tools/serve_web.py 8080 /path/to/unzipped-web-folder
+   ```
+
+---
+
+## 🕹️ Controls & Voice Commands
+
+| Action | Mouse / Keyboard | Voice Command (Press `V` or click *Mic*) | Description |
+|---|---|---|---|
+| **Move Soldier** | **Left Click** | — | Issues move command with A* obstacle avoidance. |
+| **Move & Hold Facing** | **Shift + Left Click** | — | Soldier walks to target while maintaining current facing angle. |
+| **Aim / Watch Angle** | **Right Click** or **Right-Drag** | — | Rotates firing cone to watch a corridor or doorway. |
+| **Switch Soldier** | `1`, `2`, `3`, `Tab`, or Click soldier | *"Alpha"*, *"Bravo"*, *"Charlie"* | Select active squad member (1=Rifle, 2=SMG, 3=Shotgun). |
+| **Smoke Grenade** | `Q` (targets mouse position) | *"Smoke"* | Deploys vision-blocking smoke for 9s (max throw range 340px). |
+| **Motion Scan** | `E` | *"Scan"* | Emits radar pulse revealing moving enemies within 460px. |
+| **Suppressive Fire** | `R` | *"Suppress"* | Widens cone by 80%, increases fire rate by 30%, reduces accuracy for 6s. |
+| **Rush Boost** | `F` | *"Rush"* | Boosts soldier movement speed by +65% for 4s. |
+| **Toggle Microphone** | `V` or click **Mic** button | — | Starts/stops browser Web Speech recognition. |
+| **Rematch** | `Enter` | — | Vote for rematch after match concludes. |
+
+---
+
+## 🛠️ Developer Guide: How to Work on the Game
+
+### Prerequisites & Setup
+- **Godot Engine 4.7.x** (Standard version)
+- **Web Export Templates** for Godot 4.7:
+  - If you don't have them installed, run our fast downloader (downloads only the ~90 MB web templates instead of the full 1.3 GB archive):
+    ```bash
+    python3 tools/fetch_web_templates.py 4.7.2
+    ```
+- **Python 3** (used for local web hosting and template downloads)
+
+### Working in the Godot Editor
+1. Launch Godot 4 and click **Import**.
+2. Select `project.godot` inside this directory and click **Import & Edit**.
+3. **Renderer**: We use the **GL Compatibility** renderer for zero-friction Web export. Do not change this to Forward+ or Mobile.
+4. Press **F5** to run the project directly inside Godot.
+
+### How to Tweak Weapons, Vision & Stats
+All balancing constants live in [`scripts/config.gd`](file:///Users/cyrill/hackathon-game/scripts/config.gd):
+
+- **Weapon Stats**: Modify `WEAPONS` dictionary:
+  ```gdscript
+  const WEAPONS := {
+      Weapon.RIFLE:   {"name": "Rifle",   "range": 400.0, "cone": 18.0, "interval": 0.60, "damage": 34, "accuracy": 0.92},
+      Weapon.SMG:     {"name": "SMG",     "range": 290.0, "cone": 44.0, "interval": 0.13, "damage": 8,  "accuracy": 0.72},
+      Weapon.SHOTGUN: {"name": "Shotgun", "range": 175.0, "cone": 66.0, "interval": 0.90, "damage": 10, "pellets": 6, "accuracy": 0.62},
+  }
+  ```
+- **Vision & Fog**: Modify `VIEW_RANGE` (default 420px), `VIEW_CONE` (default 120°), and `AWARE_RADIUS` (close-range 360° awareness, default 64px).
+- **Abilities**: Adjust cooldowns, durations, and effects in the `ABILITIES` dictionary.
+
+### How to Add or Edit Voice Phrases
+In [`scripts/config.gd`](file:///Users/cyrill/hackathon-game/scripts/config.gd), update `VOICE_PHRASES`. Add alternative spellings or common speech recognizer mishearings:
+
+```gdscript
+const VOICE_PHRASES := {
+    Ability.SMOKE:    ["smoke", "smoked", "smokes", "smoking", "smog"],
+    Ability.SCAN:     ["scan", "scans", "scanning", "scanner", "radar", "ping"],
+    Ability.SUPPRESS: ["suppress", "suppressing", "suppression", "surpress", "cover fire"],
+    Ability.RUSH:     ["rush", "rushing", "brush", "sprint", "go go"],
+}
+```
+
+### How the Symmetrical Map Works
+The map layout is defined in [`scripts/map_data.gd`](file:///Users/cyrill/hackathon-game/scripts/map_data.gd) via the `LEFT_HALF` ASCII array:
+- `#` = solid wall / obstacle.
+- `.` = walkable floor.
+- The right half of the map is automatically calculated via a $180^\circ$ point rotation of the left half. This guarantees 100% mathematical symmetry.
+
+To view or test the map grid in terminal:
+```bash
+godot --headless --path . --script res://tests/print_map.gd
+```
+
+### Automated Bot Testing (No Browser Needed)
+Want to verify your changes without opening browsers? Run our headless automated test:
 
 ```bash
-./export_web.sh                         # -> build/web/
-./run_server.sh                         # game server on ws://localhost:9080
-python3 tools/serve_web.py 8080         # static web server for build/web
+tools/bot_match.sh 30
+```
+This launches a headless game server, spawns two automated bot clients that engage in combat, cast abilities, and test server rule validation, then prints the match statistics.
+
+---
+
+## 🏗️ Architecture & Codebase Overview
+
+```mermaid
+flowchart TD
+    subgraph Authoritative Server
+        SV[server_game.gd\nauthoritative 30Hz simulation]
+        MAP[map_data.gd\nDDA Raycasts, A* & Collision]
+        NET_S[net.gd\nWebSocket RPC Dispatcher]
+    end
+
+    subgraph Browser Client A [Player 1]
+        CLI_A[client_game.gd\nState & Interpolation]
+        VOICE_A[voice.gd\nWeb Speech API]
+        FOG_A[vision_mask.gd\nFog of War SubViewport]
+        HUD_A[hud.gd\nSoldier Cards & Cooldowns]
+    end
+
+    subgraph Browser Client B [Player 2]
+        CLI_B[client_game.gd\n180deg Rotated View]
+        VOICE_B[voice.gd\nWeb Speech API]
+        FOG_B[vision_mask.gd\nFog of War SubViewport]
+        HUD_B[hud.gd\nSoldier Cards & Cooldowns]
+    end
+
+    CLI_A -- "c_move, c_face, c_ability (Intent)" --> NET_S
+    CLI_B -- "c_move, c_face, c_ability (Intent)" --> NET_S
+    NET_S --> SV
+    SV --> MAP
+    SV -- "Filtered Snapshot A (Only visible enemies)" --> CLI_A
+    SV -- "Filtered Snapshot B (Only visible enemies)" --> CLI_B
 ```
 
-No web export templates yet? Either *Editor → Manage Export Templates → Download*, or install
-only the web templates (~90 MB instead of 1.3 GB): `python3 tools/fetch_web_templates.py 4.7.2`.
+### File Structure
 
-If Godot is not in `/Applications`, `~/Applications` or `~/Downloads`, set `GODOT=/path/to/Godot`.
+| File | Purpose |
+|---|---|
+| [`scripts/config.gd`](file:///Users/cyrill/hackathon-game/scripts/config.gd) | Central constants: weapons, vision angles, cooldowns, voice dictionary. |
+| [`scripts/map_data.gd`](file:///Users/cyrill/hackathon-game/scripts/map_data.gd) | Symmetrical map grid, fast DDA line-of-sight raycasting, smoke clipping, A* pathfinding. |
+| [`scripts/net.gd`](file:///Users/cyrill/hackathon-game/scripts/net.gd) | Autoload network node (`Net`). Manages WebSocket connections and RPC calls. |
+| [`scripts/main.gd`](file:///Users/cyrill/hackathon-game/scripts/main.gd) | Game entry point: auto-selects Server mode if headless/`--server`, else Client mode. |
+| [`scripts/server/server_game.gd`](file:///Users/cyrill/hackathon-game/scripts/server/server_game.gd) | Authoritative simulation: movement, collision resolution, weapon firing, Fog of War snapshot filtering. |
+| [`scripts/client/client_game.gd`](file:///Users/cyrill/hackathon-game/scripts/client/client_game.gd) | Client logic: input handling, snapshot interpolation, sound dispatch, screen rotation. |
+| [`scripts/client/vision_mask.gd`](file:///Users/cyrill/hackathon-game/scripts/client/vision_mask.gd) | Generates the dynamic visual fog-of-war mask polygon inside a SubViewport. |
+| [`scripts/client/entity_view.gd`](file:///Users/cyrill/hackathon-game/scripts/client/entity_view.gd) | Renders soldiers, weapon cones, bullet tracers, damage indicators, smoke. |
+| [`scripts/client/hud.gd`](file:///Users/cyrill/hackathon-game/scripts/client/hud.gd) | Renders bottom squad cards, ability bars, voice status indicator, and match banners. |
+| [`scripts/client/voice.gd`](file:///Users/cyrill/hackathon-game/scripts/client/voice.gd) | Web Speech API bridge to Godot via `JavaScriptBridge`. |
+| [`scripts/client/sfx.gd`](file:///Users/cyrill/hackathon-game/scripts/client/sfx.gd) | Zero-asset procedural audio generator (gunshots, hits, abilities, voice pings). |
+| [`deploy/`](file:///Users/cyrill/hackathon-game/deploy/) | VM deployment configs (`tactical-squad-duel.service` & `Caddyfile`). |
+| [`tools/`](file:///Users/cyrill/hackathon-game/tools/) | Shell scripts and Python utilities for running, testing, and serving the game. |
 
-## Controls
+---
 
-| Action | Keyboard / mouse | Voice (press **V** or the *Mic* button first) |
-|---|---|---|
-| Move selected soldier | Left click (Shift+click keeps the watch direction) | |
-| Set watch / firing direction | Right click or right-drag | |
-| Switch soldier | `1` `2` `3`, `Tab`, or click a soldier | "alpha", "bravo", "charlie" |
-| Smoke (at mouse cursor, max throw range) | `Q` | "smoke" |
-| Scan (reveal nearby *moving* enemies) | `E` | "scan" |
-| Suppress (wider cone, less accuracy, faster fire) | `R` | "suppress" |
-| Rush (speed boost) | `F` | "rush" |
-| Rematch | `Enter` | |
+## ☁️ Hosting & Deploying on the Hackathon VM
 
-Soldiers shoot automatically at the closest enemy inside their firing cone with clear line of sight
-(after a short reaction time). Moving soldiers are less accurate. Unselected soldiers finish their
-current move and then hold position, watching their assigned direction
-(`CONTINUE_MOVE_WHEN_DESELECTED` in `scripts/config.gd` makes them stop instantly instead).
+The game includes ready-to-use production configs in [`deploy/`](file:///Users/cyrill/hackathon-game/deploy/):
 
-Voice uses the browser Web Speech API (Chrome / Edge; Safari partially; Firefox → keyboard only).
-It needs a secure context: `http://localhost` works, on the VM use HTTPS.
-
-## Architecture
-
-```
-scripts/
-  config.gd             all tuning (weapons, vision, abilities, voice phrases)
-  map_data.gd           point-symmetric map, DDA line of sight, smoke occlusion, collision, A*
-  net.gd                autoload "Net": WebSocket peer + every RPC
-  main.gd               headless / --server -> dedicated server, otherwise client
-  server/server_game.gd authoritative simulation + per-player filtered snapshots (30 Hz)
-  client/client_game.gd menu, input -> intents, snapshot interpolation, effects
-  client/vision_mask.gd fog-of-war mask (SubViewport + shader)
-  client/entity_view.gd soldiers, cones, tracers, smoke, pings
-  client/hud.gd         HUD
-  client/voice.gd       Web Speech API <-> Godot via JavaScriptBridge
-  client/sfx.gd         procedural sounds
-tests/bot_client.gd     headless bot (tools/bot_match.sh runs server + 2 bots)
-deploy/                 Caddyfile + systemd unit for the VM
+### 1. Install Godot on the VM
+```bash
+# Example for Ubuntu/Debian x86_64:
+curl -sSL "https://github.com/godotengine/godot/releases/download/4.7.2-stable/Godot_v4.7.2-stable_linux.x86_64.zip" -o /tmp/godot.zip
+sudo unzip /tmp/godot.zip -d /usr/local/bin/
+sudo mv /usr/local/bin/Godot_v4.7.2-stable_linux.x86_64 /usr/local/bin/godot
 ```
 
-* Clients send intent only (`select`, `move`, `face`, `ability`, `rematch`). The server validates
-  slot ownership, game state, cooldowns, coordinates and throw range.
-* Every tick the server computes, per team, which enemies are inside any squad member's view cone
-  (or close-range awareness radius), within range and not occluded by walls or smoke.
-  Only those enemies are serialized into that player's snapshot. Hidden shooters only reveal an
-  approximate *direction* of incoming fire. The client's fog of war is cosmetic.
-* Player 2's view is rotated 180° so both players see their base on the left.
+### 2. Clone Repository & Setup Systemd Service
+```bash
+sudo git clone https://github.com/ProGamerMoveHackathon/tactical-squad-duel.git /opt/tactical-squad-duel
+cd /opt/tactical-squad-duel
 
-## Deploying on the VM
+# Enable the dedicated game server as a background service:
+sudo cp deploy/tactical-squad-duel.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now tactical-squad-duel
+```
 
-1. Copy the project (incl. `build/web`) to `/opt/tactical-squad-duel` and install a Linux Godot 4.7.2
-   binary as `/usr/local/bin/godot`. Run `godot --headless --path /opt/tactical-squad-duel --import` once.
-2. `deploy/tactical-squad-duel.service` → `/etc/systemd/system/`, then
-   `systemctl enable --now tactical-squad-duel`.
-3. Install [Caddy](https://caddyserver.com), copy `deploy/Caddyfile` to `/etc/caddy/Caddyfile`,
-   set your domain, `systemctl reload caddy`. Open ports 80/443.
-4. Players open `https://your-domain/`. The client automatically connects to `wss://your-domain/ws`.
+### 3. Setup Caddy for HTTPS & WebSockets
+Browsers **only permit microphone access over HTTPS or localhost**. [Caddy](https://caddyserver.com/) automatically manages SSL certificates:
 
-Alternatively the Godot server can terminate TLS itself:
-`godot --headless --path . -- --server --port=9080 --cert=fullchain.pem --key=privkey.pem`
-(then connect with `?server=wss://host:9080`).
+```bash
+sudo apt install -y caddy
+sudo cp deploy/Caddyfile /etc/caddy/Caddyfile
+# Edit /etc/caddy/Caddyfile to replace 'game.example.com' with your domain or public IP
+sudo systemctl reload caddy
+```
+
+Now anyone can open `https://your-domain.com/` in their browser and duel!
+
+---
+
+## ❓ Troubleshooting & FAQ
+
+- **Microphone / Voice commands not working?**
+  - Web Speech API requires a **secure context**: it only functions on `localhost` or via `https://`. It will not work over plain `http://<remote-ip>`.
+  - Use Chrome or Edge for the best speech recognition support (Safari has limited support; Firefox currently lacks Web Speech API and should use keyboard shortcuts `Q`, `E`, `R`, `F`).
+- **"Port 9080 already in use" error?**
+  - Kill any orphaned local servers:
+    ```bash
+    pkill -f "hackathon-game"
+    ```
+- **Exporting the web build fails?**
+  - Make sure the web templates are installed:
+    ```bash
+    python3 tools/fetch_web_templates.py 4.7.2
+    ```
