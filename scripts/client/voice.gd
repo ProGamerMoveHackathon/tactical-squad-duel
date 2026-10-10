@@ -248,7 +248,7 @@ static func parse_voice(raw: String) -> Dictionary:
 		if cleaned.find(" " + w + " ") != -1:
 			return {"type": CmdType.REMATCH, "text": raw}
 
-	# 2. Extract Subject (Alpha, Bravo, Charlie, Squad, or default -2)
+	# 2. Extract Subject (Alpha, Bravo, Charlie, Delta, Squad, or default -2)
 	var subject := -2
 	for s_id in Cfg.VOICE_SUBJECTS:
 		for w in Cfg.VOICE_SUBJECTS[s_id]:

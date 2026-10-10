@@ -12,6 +12,7 @@ func _init() -> void:
 		["alpha move to mid", Voice.CmdType.MOVE_CALLOUT, 0, "mid"],
 		["bravo go to north", Voice.CmdType.MOVE_CALLOUT, 1, "north"],
 		["charlie advance to choke", Voice.CmdType.MOVE_CALLOUT, 2, "choke"],
+		["delta move to south", Voice.CmdType.MOVE_CALLOUT, 3, "south"],
 		["mid", Voice.CmdType.MOVE_CALLOUT, -2, "mid"],
 		["north", Voice.CmdType.MOVE_CALLOUT, -2, "north"],
 		["watch north", Voice.CmdType.WATCH_DIR, -2, "north"],

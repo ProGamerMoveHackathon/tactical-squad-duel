@@ -25,6 +25,7 @@ var map := MapData.new()
 # --- Match state (from server) --------------------------------------------
 var slot := -1
 var state := Cfg.State.WAITING
+var deployment := 0.0
 var countdown := 0.0
 var winner := -1
 var selected := 0
@@ -32,7 +33,7 @@ var own := []          # Array of Dictionary
 var enemies := {}      # idx -> Dictionary
 var ghosts := []       # last known enemy positions
 var scanned := []      # [[idx, pos]]
-var enemy_alive := [true, true, true]
+var enemy_alive := [true, true, true, true]
 var smokes := []       # [[pos, r, t_left]]
 var cooldowns := [0.0, 0.0, 0.0, 0.0]
 var names := ["", ""]
@@ -41,6 +42,7 @@ var rematch_votes := [false, false]
 # --- Effects -------------------------------------------------------------
 var time := 0.0
 var tracers := []
+var magic_particles := []
 var hurts := []
 var corpses := []
 var scan_fx := []
@@ -59,6 +61,7 @@ var entity_view: Node2D
 var fog_vp: SubViewport
 var vision_mask: Node2D
 var fog_sprite: Sprite2D
+var world_light: CanvasModulate
 var hud: Control
 var hud_layer: CanvasLayer
 var menu_layer: CanvasLayer
@@ -121,7 +124,7 @@ func _setup_debug_hooks() -> void:
 			if state != Cfg.State.PLAYING:
 				return
 			step[0] += 1
-			var idx: int = step[0] % 3
+			var idx: int = step[0] % Cfg.SQUAD_SIZE
 			_select(idx)
 			var target := Cfg.WORLD_SIZE * 0.5 + Vector2(randf_range(-200, 60) * (1 if slot == 0 else -1), randf_range(-200, 200))
 			Net.c_move.rpc_id(1, target, false)
@@ -141,6 +144,9 @@ func _build_world() -> void:
 	world = Node2D.new()
 	world.name = "World"
 	add_child(world)
+	world_light = CanvasModulate.new()
+	world_light.color = Color.WHITE
+	world.add_child(world_light)
 	map_view = MapView.new()
 	map_view.map = map
 	world.add_child(map_view)
@@ -255,7 +261,7 @@ func _build_menu() -> void:
 	title.add_theme_constant_override("shadow_offset_y", 2)
 	box.add_child(title)
 	var sub := Label.new()
-	sub.text = "1 vs 1 · 3 soldiers each · see them before they see you"
+	sub.text = "1 vs 1 · 4 soldiers each · see them before they see you"
 	sub.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	sub.add_theme_color_override("font_color", Color(0.38, 0.88, 1.0))
 	box.add_child(sub)
@@ -296,12 +302,12 @@ func _build_menu() -> void:
 	box.add_child(HSeparator.new())
 	var help := Label.new()
 	help.text = "VOICE COMMANDS (Hands-Free):\n" \
-		+ "• Select: \"Alpha\", \"Bravo\", \"Charlie\", \"Squad\"\n" \
+		+ "• Select: \"Alpha\", \"Bravo\", \"Charlie\", \"Delta\", \"Squad\"\n" \
 		+ "• Move: \"Alpha to Mid\", \"Advance to North\", \"Fall back to Base\", \"Stop\"\n" \
 		+ "• Aim: \"Watch North\", \"Watch Mid\", \"Aim South\"\n" \
 		+ "• Abilities: \"Smoke Mid\", \"Scan\", \"Suppress\", \"Squad Rush\"\n" \
 		+ "• Match: \"Deploy\", \"Rematch\"\n\n" \
-		+ "Fallback: LMB move · RMB face · 1-3 select · Q E R F abilities · V mic toggle"
+		+ "Fallback: LMB move · RMB face · 1-4 / numpad select · Q E R F abilities · V mic toggle"
 	help.add_theme_font_size_override("font_size", 12)
 	help.add_theme_color_override("font_color", Color(0.82, 0.9, 0.96))
 	box.add_child(help)
@@ -446,7 +452,7 @@ func _build_pause_menu() -> void:
 	controls_title.add_theme_font_size_override("font_size", 20)
 	controls.add_child(controls_title)
 	var help := Label.new()
-	help.text = "1–3: select soldier\nTab: next living soldier\nLeft click: move / select\nRight click: face direction\nQ: smoke · E: scan\nR: suppress · F: rush\nV: voice toggle\nEscape: close menu"
+	help.text = "1–4 / Numpad: select soldier\nTab: next living soldier\nLeft click: move / select\nRight click: face direction\nQ: smoke · E: scan\nR: suppress · F: rush\nV: voice toggle\nEscape: close menu"
 	help.add_theme_color_override("font_color", Color(0.9, 0.96, 1.0))
 	controls.add_child(help)
 
@@ -635,6 +641,7 @@ func _reset_round_visuals() -> void:
 	ghosts.clear()
 	scanned.clear()
 	tracers.clear()
+	magic_particles.clear()
 	hurts.clear()
 	corpses.clear()
 	scan_fx.clear()
@@ -643,11 +650,14 @@ func _reset_round_visuals() -> void:
 func _on_snapshot(d: Dictionary) -> void:
 	var prev_state := state
 	state = d["st"]
-	if state == Cfg.State.COUNTDOWN and prev_state != Cfg.State.COUNTDOWN:
+	if state == Cfg.State.DEPLOYMENT and prev_state != Cfg.State.DEPLOYMENT:
 		_reset_round_visuals()
 		sfx.play("start", -4.0)
+	if state == Cfg.State.COUNTDOWN and prev_state == Cfg.State.DEPLOYMENT:
+		sfx.play("start", -6.0)
 	if state == Cfg.State.WAITING and prev_state != Cfg.State.WAITING:
 		_reset_round_visuals()
+	deployment = d.get("dp", 0.0)
 	countdown = d["ct"]
 	winner = d["win"]
 	if time > _sel_lock_until:
@@ -713,19 +723,22 @@ func _handle_event(ev: Array) -> void:
 			var team: int = ev[1]
 			var weapon: int = Cfg.SQUAD_WEAPONS[ev[2]]
 			var from: Vector2 = ev[3]
-			var first := true
+			var spell_color := Color(0.12, 0.92, 1.0) if team == slot else Color(1.0, 0.16, 0.72)
 			for end in ev[4]:
-				tracers.append({"a": from, "b": end, "t": 0.12, "max": 0.12,
-					"color": Color(1.0, 0.95, 0.6) if team == slot else Color(1.0, 0.6, 0.5),
-					"flash": first, "hit": ev[5] > 0})
-				first = false
-			var snd: String = ["rifle", "smg", "shotgun"][weapon]
+				tracers.append({"a": from, "b": end, "t": 0.26, "max": 0.26,
+					"color": spell_color, "seed": randf() * TAU, "hit": ev[5] > 0})
+				_spawn_magic_burst(end, spell_color.lerp(Color.WHITE, 0.35), (end - from).normalized(), 7 if ev[5] > 0 else 3)
+			_spawn_magic_burst(from, spell_color, Vector2.from_angle(own[ev[2]]["disp_facing"]) if team == slot and ev[2] < own.size() else Vector2.RIGHT, 8)
+			var snd: String = ["cast", "cast_fast", "cast_burst"][weapon]
 			sfx.play(snd, -10.0 if team == slot else -6.0)
 			if ev[5] > 0 and team != slot:
 				sfx.play("hit", -4.0)
 		"incoming":
 			hurts.append({"idx": ev[1], "angle": ev[2], "dmg": ev[3], "t": 1.2})
-			sfx.play("smg" if ev[3] == 0 else "hit", -12.0 if ev[3] == 0 else -4.0)
+			if ev[1] < own.size():
+				var incoming_dir := Vector2.from_angle(ev[2])
+				_spawn_magic_burst(own[ev[1]]["disp"] + incoming_dir * Cfg.SOLDIER_RADIUS, Color(1.0, 0.18, 0.72), -incoming_dir, 9)
+			sfx.play("cast_fast" if ev[3] == 0 else "hit", -12.0 if ev[3] == 0 else -4.0)
 		"kill":
 			var team: int = ev[1]
 			var idx: int = ev[2]
@@ -742,6 +755,20 @@ func _msg(text: String, col: Color) -> void:
 	messages.append({"text": text, "color": col, "t": 3.0})
 	while messages.size() > 4:
 		messages.pop_front()
+
+
+func _spawn_magic_burst(at: Vector2, col: Color, direction: Vector2, amount: int) -> void:
+	var base_angle := direction.angle() if direction.length_squared() > 0.001 else 0.0
+	for _i in amount:
+		var angle := base_angle + randf_range(-0.95, 0.95)
+		magic_particles.append({
+			"pos": at + Vector2.from_angle(angle) * randf_range(0.0, 4.0),
+			"vel": Vector2.from_angle(angle) * randf_range(35.0, 115.0),
+			"t": randf_range(0.20, 0.42),
+			"max": 0.42,
+			"color": col,
+			"size": randf_range(1.5, 3.3),
+		})
 
 
 func smoke_list() -> Array:
@@ -770,6 +797,7 @@ func _process(dt: float) -> void:
 		e["disp"] = e["disp"].lerp(e["pos"], k)
 		e["disp_facing"] = lerp_angle(e["disp_facing"], e["facing"], k)
 	_tick_list(tracers, dt)
+	_tick_magic_particles(dt)
 	_tick_list(hurts, dt)
 	_tick_list(scan_fx, dt)
 	_tick_list(ghosts, dt)
@@ -777,7 +805,15 @@ func _process(dt: float) -> void:
 	for a in 4:
 		ability_flash[a] = maxf(0.0, ability_flash[a] - dt * 2.0)
 	if vision_mask:
-		vision_mask.reveal_all = state == Cfg.State.ENDED
+		vision_mask.reveal_all = state == Cfg.State.DEPLOYMENT or state == Cfg.State.COUNTDOWN or state == Cfg.State.ENDED
+	if world_light:
+		if state == Cfg.State.DEPLOYMENT:
+			world_light.color = Color(1.0, 0.98, 0.90)
+		elif state == Cfg.State.COUNTDOWN:
+			var light_level := _countdown_light_level()
+			world_light.color = Color(light_level, light_level * 0.96, light_level * 0.82)
+		else:
+			world_light.color = Color.WHITE
 	# Continuous right-drag facing
 	if slot >= 0 and Input.is_mouse_button_pressed(MOUSE_BUTTON_RIGHT) and not menu_layer.visible and not pause_overlay.visible:
 		_face_send_t -= dt
@@ -786,11 +822,33 @@ func _process(dt: float) -> void:
 			Net.c_face.rpc_id(1, world.get_local_mouse_position())
 
 
+func _countdown_light_level() -> float:
+	var elapsed := clampf(Cfg.COUNTDOWN - countdown, 0.0, Cfg.COUNTDOWN)
+	# One blink, a long pause, two blinks, three blinks, then a final shutdown.
+	for centre in [0.18, 0.90, 1.08, 1.55, 1.71, 1.87]:
+		var distance: float = absf(elapsed - centre)
+		if distance < 0.065:
+			return lerpf(0.12, 1.0, smoothstep(0.0, 0.065, distance))
+	if elapsed >= 2.45:
+		return lerpf(1.0, 0.12, smoothstep(2.45, 2.62, elapsed))
+	return 1.0
+
+
 func _tick_list(list: Array, dt: float) -> void:
 	for i in range(list.size() - 1, -1, -1):
 		list[i]["t"] -= dt
 		if list[i]["t"] <= 0.0:
 			list.remove_at(i)
+
+
+func _tick_magic_particles(dt: float) -> void:
+	for i in range(magic_particles.size() - 1, -1, -1):
+		var p: Dictionary = magic_particles[i]
+		p["t"] -= dt
+		p["pos"] += p["vel"] * dt
+		p["vel"] *= exp(-5.0 * dt)
+		if p["t"] <= 0.0:
+			magic_particles.remove_at(i)
 
 
 # --------------------------------------------------------------------------
@@ -826,10 +884,12 @@ func _unhandled_input(event: InputEvent) -> void:
 			_face_send_t = 0.05
 			Net.c_face.rpc_id(1, mp)
 	elif event is InputEventKey and event.pressed and not event.echo:
+		var number_selection := _number_key_selection(event)
+		if number_selection >= 0:
+			_select(number_selection)
+			get_viewport().set_input_as_handled()
+			return
 		match event.keycode:
-			KEY_1: _select(0)
-			KEY_2: _select(1)
-			KEY_3: _select(2)
 			KEY_TAB: _cycle_select()
 			KEY_Q: _use_ability(Cfg.Ability.SMOKE, false)
 			KEY_E: _use_ability(Cfg.Ability.SCAN, false)
@@ -846,6 +906,16 @@ func _unhandled_input(event: InputEvent) -> void:
 					Net.c_rematch.rpc_id(1)
 			_: return
 		get_viewport().set_input_as_handled()
+
+
+func _number_key_selection(event: InputEventKey) -> int:
+	for code in [event.keycode, event.physical_keycode]:
+		match code:
+			KEY_1, KEY_KP_1: return 0
+			KEY_2, KEY_KP_2: return 1
+			KEY_3, KEY_KP_3: return 2
+			KEY_4, KEY_KP_4: return 3
+	return -1
 
 
 func _select(idx: int) -> void:
@@ -873,6 +943,7 @@ func _soldier_name(idx: int) -> String:
 		0: return "ALPHA"
 		1: return "BRAVO"
 		2: return "CHARLIE"
+		3: return "DELTA"
 		_: return "SOLDIER"
 
 

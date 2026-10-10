@@ -67,26 +67,27 @@ func _draw() -> void:
 		var cp: Vector2 = game.map.callout_position(cid, my_team)
 		_draw_callout_badge(cp, POLY_BADGES.get(cid, cid.to_upper()))
 
-	# Own firing cones (clipped by walls / smoke)
-	for o in game.own:
-		if not o["alive"]:
-			continue
-		var is_sel: bool = o["idx"] == game.selected
-		var weapon: int = Cfg.SQUAD_WEAPONS[o["idx"]]
-		var suppressed: bool = o["flags"] & 2 != 0
-		var a := 0.20 if is_sel else 0.09
-		var col: Color = Color(1.0, 0.85, 0.3) if suppressed else _team_color(my_team)
-		_draw_cone(o["disp"], o["disp_facing"], Cfg.weapon_cone(weapon, suppressed), Cfg.WEAPONS[weapon]["range"], Color(col, a), Color(col, a + 0.25), smokes)
+	# Vision/fire cones stay hidden throughout deployment and countdown.
+	if game.state == Cfg.State.PLAYING:
+		for o in game.own:
+			if not o["alive"]:
+				continue
+			var is_sel: bool = o["idx"] == game.selected
+			var weapon: int = Cfg.SQUAD_WEAPONS[o["idx"]]
+			var suppressed: bool = o["flags"] & 2 != 0
+			var a := 0.20 if is_sel else 0.09
+			var col: Color = Color(1.0, 0.85, 0.3) if suppressed else _team_color(my_team)
+			_draw_cone(o["disp"], o["disp_facing"], Cfg.weapon_cone(weapon, suppressed), Cfg.WEAPONS[weapon]["range"], Color(col, a), Color(col, a + 0.25), smokes)
 
-	# Visible enemy cones
-	for idx in game.enemies:
-		var e: Dictionary = game.enemies[idx]
-		var weapon: int = Cfg.SQUAD_WEAPONS[idx]
-		var suppressed: bool = e["flags"] & 2 != 0
-		_draw_cone(e["disp"], e["disp_facing"], Cfg.weapon_cone(weapon, suppressed), Cfg.WEAPONS[weapon]["range"], Color(_team_color(enemy_team), 0.08), Color(_team_color(enemy_team), 0.3), smokes)
+		# Visible enemy cones
+		for idx in game.enemies:
+			var e: Dictionary = game.enemies[idx]
+			var weapon: int = Cfg.SQUAD_WEAPONS[idx]
+			var suppressed: bool = e["flags"] & 2 != 0
+			_draw_cone(e["disp"], e["disp_facing"], Cfg.weapon_cone(weapon, suppressed), Cfg.WEAPONS[weapon]["range"], Color(_team_color(enemy_team), 0.08), Color(_team_color(enemy_team), 0.3), smokes)
 
 	# Selected soldier path / watch direction
-	if game.selected >= 0 and game.selected < game.own.size():
+	if game.state == Cfg.State.PLAYING and game.selected >= 0 and game.selected < game.own.size():
 		var o: Dictionary = game.own[game.selected]
 		if o["alive"]:
 			var tgt: Vector2 = o["target"]
@@ -117,21 +118,40 @@ func _draw() -> void:
 	# Enemies
 	for idx in game.enemies:
 		var e: Dictionary = game.enemies[idx]
-		_draw_soldier(e["disp"], e["disp_facing"], enemy_team, idx, e["hp"], e["flags"], false)
+		_draw_soldier(e["disp"], e["disp_facing"], enemy_team, idx, e["hp"], e["flags"], false, game.state != Cfg.State.DEPLOYMENT)
 
 	# Own soldiers
 	for o in game.own:
 		if o["alive"]:
-			_draw_soldier(o["disp"], o["disp_facing"], my_team, o["idx"], o["hp"], o["flags"], o["idx"] == game.selected)
+			_draw_soldier(o["disp"], o["disp_facing"], my_team, o["idx"], o["hp"], o["flags"], o["idx"] == game.selected and game.state == Cfg.State.PLAYING, game.state != Cfg.State.DEPLOYMENT)
 
-	# Tracers & muzzle flashes
+	# Animated magical bolts with layered additive-looking neon glow.
 	for tr in game.tracers:
-		var k: float = tr["t"] / tr["max"]
-		draw_line(tr["a"], tr["b"], Color(tr["color"], k), 2.0)
-		if tr["flash"]:
-			draw_circle(tr["a"], 5.0 * k + 1.0, Color(1.0, 0.9, 0.5, k))
-		if tr["hit"]:
-			draw_circle(tr["b"], 3.0, Color(1.0, 0.2, 0.2, k))
+		var progress := clampf(1.0 - tr["t"] / tr["max"], 0.0, 1.0)
+		var head_progress := minf(1.0, progress * 1.35)
+		var tail_progress := maxf(0.0, head_progress - 0.20)
+		var direction: Vector2 = (tr["b"] - tr["a"]).normalized()
+		var side := direction.orthogonal() * sin(game.time * 58.0 + tr["seed"]) * 1.8
+		var head: Vector2 = tr["a"].lerp(tr["b"], head_progress) + side
+		var tail: Vector2 = tr["a"].lerp(tr["b"], tail_progress) - side * 0.35
+		var fade := clampf(tr["t"] / 0.10, 0.0, 1.0)
+		var col: Color = tr["color"]
+		draw_line(tail, head, Color(col.r, col.g, col.b, 0.16 * fade), 11.0)
+		draw_line(tail, head, Color(col.r, col.g, col.b, 0.42 * fade), 6.0)
+		draw_line(tail, head, Color(0.92, 1.0, 1.0, 0.95 * fade), 2.2)
+		draw_circle(head, 9.0, Color(col.r, col.g, col.b, 0.16 * fade))
+		draw_circle(head, 4.0, Color(col.r, col.g, col.b, 0.88 * fade))
+		draw_circle(head, 1.8, Color(1.0, 1.0, 1.0, fade))
+
+	# Neon casting and impact sparks.
+	for particle in game.magic_particles:
+		var k: float = clampf(particle["t"] / particle["max"], 0.0, 1.0)
+		var p: Vector2 = particle["pos"]
+		var col: Color = particle["color"]
+		var radius: float = particle["size"] * (0.5 + k * 0.5)
+		draw_circle(p, radius * 3.2, Color(col.r, col.g, col.b, 0.10 * k))
+		draw_circle(p, radius * 1.7, Color(col.r, col.g, col.b, 0.32 * k))
+		draw_circle(p, radius, Color(0.9, 1.0, 1.0, 0.95 * k))
 
 	# Smoke clouds
 	for sm in game.smokes:
@@ -160,18 +180,18 @@ func _draw() -> void:
 		draw_primitive(PackedVector2Array([tip, o["disp"] + Vector2.from_angle(ang - 0.18) * 27.0, o["disp"] + Vector2.from_angle(ang + 0.18) * 27.0]), PackedColorArray([col, col, col]), PackedVector2Array())
 
 
-func _draw_soldier(p: Vector2, facing: float, team: int, idx: int, hp: int, flags: int, is_sel: bool) -> void:
+func _draw_soldier(p: Vector2, facing: float, team: int, idx: int, hp: int, flags: int, is_sel: bool, show_ui := true) -> void:
 	var col := _team_color(team)
 	var weapon: int = Cfg.SQUAD_WEAPONS[idx]
 	var r := Cfg.SOLDIER_RADIUS
 
 	# Selection highlight ring (pulsing)
-	if is_sel:
+	if show_ui and is_sel:
 		var pulse := 0.5 + 0.5 * sin(game.time * 6.0)
 		draw_arc(p, r + 7.0 + pulse * 2.5, 0.0, TAU, 32, Color(1, 1, 1, 0.9), 2.5)
 
 	# Rush speed lines behind unit
-	if flags & 4 != 0:  # rush
+	if show_ui and flags & 4 != 0:  # rush
 		var back := Vector2.from_angle(facing + PI)
 		for i in 3:
 			draw_line(p + back * (r + 3 + i * 4) + back.orthogonal() * (i - 1) * 5.0, p + back * (r + 10 + i * 4) + back.orthogonal() * (i - 1) * 5.0, Color(0.6, 1.0, 0.9, 0.7), 2.0)
@@ -179,9 +199,10 @@ func _draw_soldier(p: Vector2, facing: float, team: int, idx: int, hp: int, flag
 	# Shadow
 	draw_circle(p + Vector2(2, 3), r + 2.0, Color(0, 0, 0, 0.35))
 
-	# Team identification base ring
-	draw_circle(p, r + 2.0, Color(col.r, col.g, col.b, 0.35))
-	draw_arc(p, r + 2.5, 0.0, TAU, 32, col, 2.0)
+	# Team identification is hidden during the clean entrance cinematic.
+	if show_ui:
+		draw_circle(p, r + 2.0, Color(col.r, col.g, col.b, 0.35))
+		draw_arc(p, r + 2.5, 0.0, TAU, 32, col, 2.0)
 
 	if not soldier_textures.is_empty():
 		# Each squad slot has a matching modern-student portrait and overhead sprite.
@@ -207,20 +228,21 @@ func _draw_soldier(p: Vector2, facing: float, team: int, idx: int, hp: int, flag
 		draw_circle(p, r - 3.0, col)
 		draw_circle(p + dir * 2.0, 4.5, col.lightened(0.35))
 
-	# Health ring
-	var frac := clampf(hp / float(Cfg.SOLDIER_HP), 0.0, 1.0)
-	draw_arc(p, r + 3.0, 0.0, TAU, 32, Color(0, 0, 0, 0.55), 3.0)
-	var hp_col := Color(0.3, 1.0, 0.4).lerp(Color(1.0, 0.25, 0.2), 1.0 - frac)
-	if frac > 0.0:
-		draw_arc(p, r + 3.0, -PI * 0.5 - game.world_rotation, -PI * 0.5 - game.world_rotation + TAU * frac, 32, hp_col, 3.0)
+	if show_ui:
+		# Health ring
+		var frac := clampf(hp / float(Cfg.SOLDIER_HP), 0.0, 1.0)
+		draw_arc(p, r + 3.0, 0.0, TAU, 32, Color(0, 0, 0, 0.55), 3.0)
+		var hp_col := Color(0.3, 1.0, 0.4).lerp(Color(1.0, 0.25, 0.2), 1.0 - frac)
+		if frac > 0.0:
+			draw_arc(p, r + 3.0, -PI * 0.5 - game.world_rotation, -PI * 0.5 - game.world_rotation + TAU * frac, 32, hp_col, 3.0)
 
-	if flags & 2 != 0:  # suppress
-		draw_arc(p, r + 7.0, 0.0, TAU, 24, Color(1.0, 0.85, 0.3, 0.7), 2.0)
+		if flags & 2 != 0:  # suppress
+			draw_arc(p, r + 7.0, 0.0, TAU, 24, Color(1.0, 0.85, 0.3, 0.7), 2.0)
 
-	# Label (counter-rotated so text is always upright)
-	var label: String = str(idx + 1) if team == game.slot else ["A", "B", "C"][idx]
-	draw_circle(p + Vector2(0, 1), 6.5, Color(0, 0, 0, 0.55))
-	_draw_label(p + Vector2(0, 2), label, Color.WHITE, 11)
+		# Label (counter-rotated so text is always upright)
+		var label: String = str(idx + 1) if team == game.slot else ["A", "B", "C", "D"][idx]
+		draw_circle(p + Vector2(0, 1), 6.5, Color(0, 0, 0, 0.55))
+		_draw_label(p + Vector2(0, 2), label, Color.WHITE, 11)
 
 
 func _draw_label(p: Vector2, text: String, col: Color, size: int) -> void:
