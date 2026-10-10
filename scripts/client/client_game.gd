@@ -334,6 +334,24 @@ func _build_menu() -> void:
 
 
 func _build_loadout() -> void:
+	var tooltip_style := StyleBoxFlat.new()
+	tooltip_style.bg_color = Color(0.015, 0.025, 0.045, 0.97)
+	tooltip_style.border_color = Color(0.28, 0.76, 0.96, 0.95)
+	tooltip_style.set_border_width_all(2)
+	tooltip_style.set_corner_radius_all(6)
+	
+	# Internal padding
+	tooltip_style.content_margin_left = 14
+	tooltip_style.content_margin_right = 14
+	tooltip_style.content_margin_top = 8
+	tooltip_style.content_margin_bottom = 8
+	
+	var current_theme := ThemeDB.get_default_theme()
+	current_theme.set_stylebox("panel", "TooltipPanel", tooltip_style)
+	
+	# Increase this value to make the box wider and shorter vertically:
+	current_theme.set_constant("max_width", "TooltipLabel", 580)
+	
 	loadout_layer = CanvasLayer.new()
 	loadout_layer.layer = 15
 	add_child(loadout_layer)
@@ -454,12 +472,22 @@ func _build_loadout() -> void:
 		for ability in Cfg.ABILITY_COUNT:
 			var button := Button.new()
 			button.text = "%s  ·  %d MP" % [Cfg.ABILITIES[ability]["name"], int(Cfg.ABILITIES[ability]["mp_cost"])]
-			button.tooltip_text = "%s\n\n%s\nCost: %d MP  ·  Cooldown: %.1fs" % [
+			#button.tooltip_text = "%s\n\n%s\nCost: %d MP  ·  Cooldown: %.1fs" % [
+				#Cfg.ABILITIES[ability]["name"],
+				#Cfg.ABILITIES[ability]["description"],
+				#int(Cfg.ABILITIES[ability]["mp_cost"]),
+				#float(Cfg.ABILITIES[ability]["cooldown"]),
+			#]
+			
+			var desc: String = Cfg.ABILITIES[ability]["description"]
+			
+			button.tooltip_text = "%s\n%s\nCost: %d MP  ·  Cooldown: %.1fs" % [
 				Cfg.ABILITIES[ability]["name"],
-				Cfg.ABILITIES[ability]["description"],
+				desc,
 				int(Cfg.ABILITIES[ability]["mp_cost"]),
 				float(Cfg.ABILITIES[ability]["cooldown"]),
 			]
+			
 			button.toggle_mode = true
 			button.custom_minimum_size = Vector2(117, 32)
 			button.focus_mode = Control.FOCUS_NONE
