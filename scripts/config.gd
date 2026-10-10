@@ -21,6 +21,7 @@ const HEALTH_REGEN_DELAY := 10.0
 const HEALTH_REGEN_RATE := 5.0
 const MOVE_SPEED := 120.0              # px / s
 const TURN_SPEED := deg_to_rad(540.0)  # rad / s
+const VOICE_TURN_SPEED := deg_to_rad(300.0)  # after a voice order, so spoken turns are visible
 ## If true, a soldier that was moving keeps walking to its destination after the
 ## player switches to another soldier. If false it stops immediately.
 const CONTINUE_MOVE_WHEN_DESELECTED := true

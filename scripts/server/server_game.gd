@@ -24,6 +24,7 @@ class Soldier:
 	var facing := 0.0
 	var watch_angle := 0.0
 	var facing_lock := false
+	var voice_turn := false  # last order came by voice: turn at VOICE_TURN_SPEED
 	var hp: float = Cfg.SOLDIER_HP
 	var mp: float = Cfg.SOLDIER_MP
 	var health_regen_wait := 0.0
@@ -275,17 +276,17 @@ func _order_face(s: Soldier, target: Vector2) -> void:
 func on_move(id: int, target: Vector2, keep_facing: bool) -> void:
 	var slot := _slot_of(id)
 	if slot != -1:
-		_order_move(_selected_soldier(slot), target, keep_facing)
+		_order_move(_set_voice_turn(_selected_soldier(slot), false), target, keep_facing)
 
 
 func on_face(id: int, target: Vector2) -> void:
 	var slot := _slot_of(id)
 	if slot != -1:
-		_order_face(_selected_soldier(slot), target)
+		_order_face(_set_voice_turn(_selected_soldier(slot), false), target)
 
 
 func on_unit_move(id: int, idx: int, target: Vector2, queue: bool) -> void:
-	var s := _unit(_slot_of(id), idx)
+	var s := _set_voice_turn(_unit(_slot_of(id), idx), true)
 	if queue and s != null and not s.path.is_empty() and state == Cfg.State.PLAYING and _valid_vec(target):
 		s.path.append_array(map.find_path(s.path[s.path.size() - 1], target))
 		return
@@ -293,7 +294,18 @@ func on_unit_move(id: int, idx: int, target: Vector2, queue: bool) -> void:
 
 
 func on_unit_face(id: int, idx: int, target: Vector2) -> void:
-	_order_face(_unit(_slot_of(id), idx), target)
+	_order_face(_set_voice_turn(_unit(_slot_of(id), idx), true), target)
+
+
+## Unit-addressed orders come from voice; mouse orders go to the selected soldier.
+func _set_voice_turn(s: Soldier, voice: bool) -> Soldier:
+	if s != null:
+		s.voice_turn = voice
+	return s
+
+
+func _turn_speed(s: Soldier) -> float:
+	return Cfg.VOICE_TURN_SPEED if s.voice_turn else Cfg.TURN_SPEED
 
 
 func on_unit_stop(id: int, idx: int) -> void:
@@ -580,7 +592,7 @@ func _update_facing_only(dt: float) -> void:
 	for team in 2:
 		for s in squads[team]:
 			if s.facing_lock:
-				s.facing = rotate_toward(s.facing, s.watch_angle, Cfg.TURN_SPEED * dt)
+				s.facing = rotate_toward(s.facing, s.watch_angle, _turn_speed(s) * dt)
 
 
 func _simulate(dt: float) -> void:
@@ -684,7 +696,7 @@ func _move_soldier(s: Soldier, dt: float) -> void:
 			s.pos += diff / dist * step
 		s.moving = true
 		s.last_moved = time
-	s.facing = rotate_toward(s.facing, desired, Cfg.TURN_SPEED * dt)
+	s.facing = rotate_toward(s.facing, desired, _turn_speed(s) * dt)
 
 
 func _compute_visibility() -> void:

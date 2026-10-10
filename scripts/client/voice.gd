@@ -434,7 +434,7 @@ static func format_action_tag(cmd: Dictionary) -> String:
 			return tag
 		CmdType.STEER:
 			var parts := []
-			if absf(cmd["turn"]) >= 180.0:
+			if is_equal_approx(absf(cmd["turn"]), 180.0):
 				parts.append("TURN AROUND")
 			elif cmd["turn"] != 0.0:
 				parts.append("%s %d" % ["RIGHT" if cmd["turn"] > 0.0 else "LEFT", absf(cmd["turn"])])
@@ -546,8 +546,10 @@ static func _split_segments(text: String) -> Array:
 	for i in words.size():
 		var w := words[i]
 		# "up and left" is one diagonal, not two orders.
+		# Likewise "a hundred and twenty" is one number.
 		var joins_dirs := w == "and" and i > 0 and i + 1 < words.size() \
-			and words[i - 1] in single_dirs and words[i + 1] in single_dirs
+			and ((words[i - 1] in single_dirs and words[i + 1] in single_dirs) \
+				or (words[i - 1] == "hundred" and (Cfg.VOICE_NUMBER_WORDS.has(words[i + 1]) or words[i + 1].is_valid_int())))
 		if w in ["and", "then", "also"] and not joins_dirs:
 			if not cur.is_empty():
 				segs.append(" " + " ".join(cur) + " ")
@@ -694,28 +696,30 @@ static func _parse_segment(text: String, inherited: int) -> Dictionary:
 ## Soldier-relative driving: "forward", "back 5", "left 30", "go right", "turn around".
 ## turn is in degrees (positive = right / clockwise on screen); tiles 0 = until a wall.
 static func _parse_steer(text: String, subject: int, dist: String) -> Dictionary:
-	var turn := 0.0
 	var move := 0
 	var hit := _find(text, "steer_around")
-	if not hit.is_empty():
-		turn = 180.0
+	var around := not hit.is_empty()
+	if around:
 		text = _cut(text, hit)
-	for side in [["left", -1.0], ["right", 1.0]]:
-		hit = _find(text, "steer_" + side[0])
+	var side := 0.0
+	for s in [["left", -1.0], ["right", 1.0]]:
+		hit = _find(text, "steer_" + s[0])
 		if not hit.is_empty():
-			turn = side[1] * Cfg.VOICE_TURN_DEFAULT
+			side = s[1]
 			text = _cut(text, hit)
+	# "left 180" / "right one eighty": the 180 is the size of a left / right turn.
+	var turn := (180.0 * (side if side != 0.0 else 1.0)) if around else side * Cfg.VOICE_TURN_DEFAULT
 	if not _find(text, "steer_backward").is_empty():
 		move = -1
 	elif not _find(text, "steer_forward").is_empty():
 		move = 1
 	var go := not _find(text, "steer_go").is_empty()
-	if move == 0 and go and ((turn != 0.0 and turn != 180.0) or _number(text) > 0 or dist != ""):
+	if move == 0 and go and ((turn != 0.0 and not around) or _number(text) > 0 or dist != ""):
 		move = 1
 	if turn == 0.0 and move == 0:
 		return {"type": CmdType.NONE}
 	var n := _number(text)
-	var exact := turn == 180.0
+	var exact := around
 	var tiles := 0
 	if turn != 0.0 and not exact:
 		if n > 0:
@@ -730,15 +734,22 @@ static func _parse_steer(text: String, subject: int, dist: String) -> Dictionary
 		"tiles": tiles, "dist": dist}
 
 
-## First number in `text` ("30", "forty five", "a hundred"), or -1.
+## First number in `text` ("30", "forty five", "a hundred", "one twenty" = 120), or -1.
 static func _number(text: String) -> int:
 	var total := -1
+	var lone_digit := false
 	for w in text.split(" ", false):
 		if w.is_valid_int():
 			return int(w) if total < 0 else total + int(w)
 		if Cfg.VOICE_NUMBER_WORDS.has(w):
 			var v: int = Cfg.VOICE_NUMBER_WORDS[w]
-			total = maxi(total, 1) * 100 if v == 100 else maxi(total, 0) + v
+			if v == 100:
+				total = maxi(total, 1) * 100
+			elif lone_digit and v >= 20:
+				total = total * 100 + v
+			else:
+				total = maxi(total, 0) + v
+			lone_digit = total == v and v < 10
 		elif total >= 0:
 			break
 	return total
