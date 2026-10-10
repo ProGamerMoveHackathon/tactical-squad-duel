@@ -7,10 +7,13 @@ const BAR_H := 64.0
 
 var game  # ClientGame
 var font: Font
+var portrait_texture: Texture2D
 
 
 func _ready() -> void:
 	font = ThemeDB.fallback_font
+	portrait_texture = load("res://assets/magic_student_portraits.png")
+	texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
 
 
@@ -52,21 +55,26 @@ func _draw() -> void:
 		draw_rect(r, Color(0.13, 0.15, 0.19) if alive else Color(0.1, 0.08, 0.08))
 		if sel:
 			draw_rect(r, Color(1, 1, 1, 0.9), false, 2.0)
+		if portrait_texture:
+			var photo_rect := Rect2(x + 5, top + 10, 36, 42)
+			draw_rect(photo_rect.grow(2.0), Color(0.86, 0.92, 0.96) if alive else Color(0.35, 0.35, 0.37))
+			var portrait_source := Rect2(Vector2((i % 3) * 512 + 64, (i / 3) * 512), Vector2(384, 512))
+			draw_texture_rect_region(portrait_texture, photo_rect, portrait_source, Color.WHITE if alive else Color(0.38, 0.38, 0.4, 0.8))
 		var w: Dictionary = Cfg.WEAPONS[Cfg.SQUAD_WEAPONS[i]]
-		_text(Vector2(x + 8, top + 26), "%d" % (i + 1), 18, my_col if alive else Color(0.4, 0.4, 0.4))
-		_text(Vector2(x + 28, top + 25), "%s · %s" % [SQUAD_NAMES[i], w["name"]], 13, Color.WHITE if alive else Color(0.5, 0.5, 0.5))
+		_text(Vector2(x + 46, top + 25), "%d" % (i + 1), 16, my_col if alive else Color(0.4, 0.4, 0.4))
+		_text(Vector2(x + 62, top + 25), "%s · %s" % [SQUAD_NAMES[i], w["name"]], 12, Color.WHITE if alive else Color(0.5, 0.5, 0.5))
 		var hp: int = o.get("hp", Cfg.SOLDIER_HP)
 		if alive:
 			var frac := hp / float(Cfg.SOLDIER_HP)
-			draw_rect(Rect2(x + 28, top + 34, 120, 8), Color(0, 0, 0, 0.6))
-			draw_rect(Rect2(x + 28, top + 34, 120 * frac, 8), Color(0.3, 1.0, 0.4).lerp(Color(1.0, 0.25, 0.2), 1.0 - frac))
+			draw_rect(Rect2(x + 46, top + 34, 102, 8), Color(0, 0, 0, 0.6))
+			draw_rect(Rect2(x + 46, top + 34, 102 * frac, 8), Color(0.3, 1.0, 0.4).lerp(Color(1.0, 0.25, 0.2), 1.0 - frac))
 			var flags: int = o.get("flags", 0)
 			var tags := ""
 			if flags & 2: tags += "SUPP "
 			if flags & 4: tags += "RUSH"
-			_text(Vector2(x + 100, top + 25), tags, 10, Color(1.0, 0.85, 0.3))
+			_text(Vector2(x + 108, top + 51), tags, 9, Color(1.0, 0.85, 0.3))
 		else:
-			_text(Vector2(x + 28, top + 44), "K.I.A.", 13, Color(1.0, 0.3, 0.3))
+			_text(Vector2(x + 46, top + 44), "K.I.A.", 13, Color(1.0, 0.3, 0.3))
 
 	# Ability cards
 	var ab_x := 512.0

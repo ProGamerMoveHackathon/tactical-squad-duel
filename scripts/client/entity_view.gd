@@ -7,13 +7,19 @@ const Cfg = preload("res://scripts/config.gd")
 var game  # ClientGame
 var font: Font
 var soldier_texture: Texture2D
+var soldier_textures: Array[Texture2D] = []
 
 
 func _ready() -> void:
 	font = ThemeDB.fallback_font
-	texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS
-	if ResourceLoader.exists("res://mage-test-sprite.png"):
-		soldier_texture = load("res://mage-test-sprite.png")
+	texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+	if ResourceLoader.exists("res://assets/magic_student_sprites.png"):
+		soldier_texture = load("res://assets/magic_student_sprites.png")
+		for idx in Cfg.SQUAD_SIZE:
+			var region := AtlasTexture.new()
+			region.atlas = soldier_texture
+			region.region = Rect2(Vector2(idx % 3, idx / 3) * 512.0, Vector2(512, 512))
+			soldier_textures.append(region)
 
 
 func _process(_dt: float) -> void:
@@ -36,9 +42,10 @@ func _draw() -> void:
 	for c in game.corpses:
 		var col: Color = _team_color(c["team"]).darkened(0.5)
 		var p: Vector2 = c["pos"]
-		if soldier_texture:
-			draw_set_transform(p, c.get("facing", 0.0), Vector2(0.038, 0.038))
-			draw_texture(soldier_texture, Vector2(-530.0, -550.0), Color(0.3, 0.25, 0.25, 0.55))
+		if not soldier_textures.is_empty():
+			var corpse_texture := soldier_textures[int(c.get("idx", 0)) % soldier_textures.size()]
+			draw_set_transform(p, c.get("facing", 0.0), Vector2.ONE)
+			draw_texture_rect(corpse_texture, Rect2(-24, -18, 48, 36), false, Color(0.3, 0.25, 0.25, 0.55))
 			draw_set_transform_matrix(Transform2D.IDENTITY)
 		draw_circle(p, 9.0, Color(0.25, 0.05, 0.05, 0.6))
 		draw_line(p + Vector2(-6, -6), p + Vector2(6, 6), col, 2.5)
@@ -176,12 +183,11 @@ func _draw_soldier(p: Vector2, facing: float, team: int, idx: int, hp: int, flag
 	draw_circle(p, r + 2.0, Color(col.r, col.g, col.b, 0.35))
 	draw_arc(p, r + 2.5, 0.0, TAU, 32, col, 2.0)
 
-	if soldier_texture:
-		# Draw mage character sprite facing the view angle
-		# Texture size is 1536x1024; head/body pivot is at (530, 550); wand points +X (0 deg).
+	if not soldier_textures.is_empty():
+		# Each squad slot has a matching modern-student portrait and overhead sprite.
 		var sprite_mod := Color(0.92, 0.96, 1.0) if team == 0 else Color(1.0, 0.88, 0.88)
-		draw_set_transform(p, facing, Vector2(0.042, 0.042))
-		draw_texture(soldier_texture, Vector2(-530.0, -550.0), sprite_mod)
+		draw_set_transform(p, facing, Vector2.ONE)
+		draw_texture_rect(soldier_textures[idx % soldier_textures.size()], Rect2(-24, -18, 48, 36), false, sprite_mod)
 		draw_set_transform_matrix(Transform2D.IDENTITY)
 	else:
 		# Fallback geometric soldier
@@ -252,4 +258,3 @@ func _draw_callout_badge(p: Vector2, text: String) -> void:
 	draw_circle(p, 2.5, col)
 	draw_arc(p, 8.0, 0.0, TAU, 16, Color(col.r, col.g, col.b, 0.25), 1.0)
 	_draw_label(p + Vector2(0, -12), "[" + text + "]", col, 10)
-

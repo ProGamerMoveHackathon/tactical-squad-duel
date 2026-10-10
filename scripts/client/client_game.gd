@@ -66,6 +66,7 @@ var name_edit: LineEdit
 var url_edit: LineEdit
 var connect_btn: Button
 var status_label: Label
+var menu_panorama: TextureRect
 var voice: Node
 var sfx: Node
 
@@ -199,14 +200,33 @@ func _build_menu() -> void:
 	menu_layer = CanvasLayer.new()
 	menu_layer.layer = 10
 	add_child(menu_layer)
+	menu_panorama = TextureRect.new()
+	menu_panorama.name = "CampusFlythrough"
+	menu_panorama.texture = load("res://assets/eth_campus_panorama_pixel.png")
+	menu_panorama.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	menu_panorama.stretch_mode = TextureRect.STRETCH_SCALE
+	menu_panorama.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+	menu_panorama.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var panorama_ratio := float(menu_panorama.texture.get_width()) / float(menu_panorama.texture.get_height())
+	menu_panorama.size = Vector2(768.0 * panorama_ratio, 768.0)
+	menu_layer.add_child(menu_panorama)
 	var bg := ColorRect.new()
-	bg.color = Color(0.04, 0.05, 0.07)
+	bg.color = Color(0.0, 0.025, 0.065, 0.5)
 	bg.set_anchors_preset(Control.PRESET_FULL_RECT)
+	bg.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	menu_layer.add_child(bg)
 	var center := CenterContainer.new()
 	center.set_anchors_preset(Control.PRESET_FULL_RECT)
 	menu_layer.add_child(center)
 	var panel := PanelContainer.new()
+	var panel_style := StyleBoxFlat.new()
+	panel_style.bg_color = Color(0.012, 0.03, 0.06, 0.96)
+	panel_style.border_color = Color(0.72, 0.91, 1.0, 0.98)
+	panel_style.set_border_width_all(3)
+	panel_style.set_corner_radius_all(10)
+	panel_style.shadow_color = Color(0.0, 0.0, 0.0, 0.72)
+	panel_style.shadow_size = 16
+	panel.add_theme_stylebox_override("panel", panel_style)
 	center.add_child(panel)
 	var margin := MarginContainer.new()
 	for side in ["left", "right", "top", "bottom"]:
@@ -221,37 +241,48 @@ func _build_menu() -> void:
 	title.text = "TACTICAL SQUAD DUEL"
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	title.add_theme_font_size_override("font_size", 38)
-	title.add_theme_color_override("font_color", Color(0.85, 0.95, 1.0))
+	title.add_theme_color_override("font_color", Color(0.96, 0.99, 1.0))
+	title.add_theme_color_override("font_shadow_color", Color(0.0, 0.55, 0.85, 0.9))
+	title.add_theme_constant_override("shadow_offset_x", 2)
+	title.add_theme_constant_override("shadow_offset_y", 2)
 	box.add_child(title)
 	var sub := Label.new()
 	sub.text = "1 vs 1 · 3 soldiers each · see them before they see you"
 	sub.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	sub.add_theme_color_override("font_color", Color(0.6, 0.7, 0.8))
+	sub.add_theme_color_override("font_color", Color(0.38, 0.88, 1.0))
 	box.add_child(sub)
 	box.add_child(HSeparator.new())
 
 	var name_label := Label.new()
 	name_label.text = "Callsign"
+	name_label.add_theme_color_override("font_color", Color(0.82, 0.93, 1.0))
 	box.add_child(name_label)
 	name_edit = LineEdit.new()
 	name_edit.max_length = 16
+	_style_menu_field(name_edit)
 	var qn := _query_param("name")
 	name_edit.text = qn if qn != "" else "Player%d" % (randi() % 900 + 100)
 	box.add_child(name_edit)
 	var url_label := Label.new()
 	url_label.text = "Server"
+	url_label.add_theme_color_override("font_color", Color(0.82, 0.93, 1.0))
 	box.add_child(url_label)
 	url_edit = LineEdit.new()
 	url_edit.text = _default_url()
+	_style_menu_field(url_edit)
 	box.add_child(url_edit)
 	connect_btn = Button.new()
 	connect_btn.text = "Deploy"
 	connect_btn.custom_minimum_size = Vector2(0, 40)
+	_style_menu_button(connect_btn)
 	connect_btn.pressed.connect(_on_connect_pressed)
 	box.add_child(connect_btn)
 	status_label = Label.new()
 	status_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	status_label.add_theme_color_override("font_color", Color(1.0, 0.8, 0.4))
+	status_label.add_theme_color_override("font_color", Color(1.0, 0.83, 0.28))
+	status_label.add_theme_color_override("font_shadow_color", Color(0.0, 0.0, 0.0, 0.9))
+	status_label.add_theme_constant_override("shadow_offset_x", 1)
+	status_label.add_theme_constant_override("shadow_offset_y", 2)
 	status_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	box.add_child(status_label)
 	box.add_child(HSeparator.new())
@@ -264,10 +295,55 @@ func _build_menu() -> void:
 		+ "• Match: \"Deploy\", \"Rematch\"\n\n" \
 		+ "Fallback: LMB move · RMB face · 1-3 select · Q E R F abilities · V mic toggle"
 	help.add_theme_font_size_override("font_size", 12)
-	help.add_theme_color_override("font_color", Color(0.75, 0.78, 0.82))
+	help.add_theme_color_override("font_color", Color(0.82, 0.9, 0.96))
 	box.add_child(help)
 	name_edit.text_submitted.connect(func(_t): _on_connect_pressed())
 	url_edit.text_submitted.connect(func(_t): _on_connect_pressed())
+
+
+func _style_menu_field(field: LineEdit) -> void:
+	var normal := StyleBoxFlat.new()
+	normal.bg_color = Color(0.018, 0.055, 0.1, 0.98)
+	normal.border_color = Color(0.28, 0.76, 0.96, 0.95)
+	normal.set_border_width_all(2)
+	normal.set_corner_radius_all(5)
+	normal.content_margin_left = 12
+	normal.content_margin_right = 12
+	var focus := normal.duplicate()
+	focus.bg_color = Color(0.025, 0.12, 0.2, 1.0)
+	focus.border_color = Color(1.0, 0.83, 0.28, 1.0)
+	field.add_theme_stylebox_override("normal", normal)
+	field.add_theme_stylebox_override("focus", focus)
+	field.add_theme_color_override("font_color", Color(0.96, 0.99, 1.0))
+	field.add_theme_color_override("caret_color", Color(0.38, 0.88, 1.0))
+	field.add_theme_color_override("selection_color", Color(0.08, 0.45, 0.62, 0.9))
+
+
+func _style_menu_button(button: Button) -> void:
+	var normal := StyleBoxFlat.new()
+	normal.bg_color = Color(0.02, 0.32, 0.46, 0.98)
+	normal.border_color = Color(0.28, 0.76, 0.96, 0.95)
+	normal.set_border_width_all(2)
+	normal.set_corner_radius_all(5)
+	var hover := normal.duplicate()
+	hover.bg_color = Color(0.06, 0.45, 0.62, 1.0)
+	hover.border_color = Color(0.82, 0.96, 1.0, 1.0)
+	var pressed := normal.duplicate()
+	pressed.bg_color = Color(0.015, 0.2, 0.3, 1.0)
+	pressed.border_color = Color(1.0, 0.83, 0.28, 1.0)
+	var disabled := normal.duplicate()
+	disabled.bg_color = Color(0.02, 0.06, 0.09, 0.94)
+	disabled.border_color = Color(0.24, 0.36, 0.43, 0.9)
+	button.add_theme_stylebox_override("normal", normal)
+	button.add_theme_stylebox_override("hover", hover)
+	button.add_theme_stylebox_override("pressed", pressed)
+	button.add_theme_stylebox_override("focus", pressed)
+	button.add_theme_stylebox_override("disabled", disabled)
+	button.add_theme_color_override("font_color", Color(0.96, 0.99, 1.0))
+	button.add_theme_color_override("font_hover_color", Color.WHITE)
+	button.add_theme_color_override("font_pressed_color", Color.WHITE)
+	button.add_theme_color_override("font_disabled_color", Color(0.55, 0.65, 0.72))
+	button.add_theme_font_size_override("font_size", 16)
 
 
 func _show_menu(show: bool, status: String) -> void:
@@ -459,7 +535,7 @@ func _handle_event(ev: Array) -> void:
 		"kill":
 			var team: int = ev[1]
 			var idx: int = ev[2]
-			corpses.append({"pos": ev[3], "team": team})
+			corpses.append({"pos": ev[3], "team": team, "idx": idx})
 			var wname: String = Cfg.WEAPONS[Cfg.SQUAD_WEAPONS[idx]]["name"]
 			if team == slot:
 				_msg("Your %s is down!" % wname, Color(1.0, 0.4, 0.3))
@@ -487,6 +563,10 @@ func smoke_list() -> Array:
 
 func _process(dt: float) -> void:
 	time += dt
+	if menu_layer != null and menu_layer.visible and menu_panorama != null:
+		var travel := maxf(0.0, menu_panorama.size.x - 1280.0)
+		var flythrough := 0.5 - 0.5 * cos(time * 0.15)
+		menu_panorama.position = Vector2(-travel * flythrough, sin(time * 0.21) * 8.0)
 	var k := 1.0 - exp(-18.0 * dt)
 	for o in own:
 		o["disp"] = o["disp"].lerp(o["pos"], k)
