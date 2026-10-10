@@ -28,43 +28,103 @@ const JS_SETUP := """
 (function () {
   if (window.tsdVoice) return;
   var SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-  var v = window.tsdVoice = { supported: !!SR, active: false, queue: [], status: SR ? 'off' : 'unsupported', session: 0 };
+  var v = window.tsdVoice = { supported: !!SR, active: false, queue: [], status: SR ? 'off (press V)' : 'unsupported', session: 0 };
   var rec = null, want = false;
+
   function make() {
-    rec = new SR();
-    rec.continuous = true;
-    rec.interimResults = true;
-    rec.maxAlternatives = 3;
-    rec.lang = 'en-US';
-    rec.onstart = function () { v.active = true; v.session++; v.status = 'listening'; };
-    rec.onerror = function (e) {
-      v.status = 'error: ' + e.error;
-      if (e.error === 'not-allowed' || e.error === 'service-not-allowed' || e.error === 'audio-capture') want = false;
-    };
-    rec.onend = function () {
-      v.active = false;
-      if (want) { setTimeout(function () { try { rec.start(); } catch (e) {} }, 200); }
-      else if (v.status.indexOf('error') !== 0) { v.status = 'off'; }
-    };
-    rec.onresult = function (ev) {
-      for (var i = ev.resultIndex; i < ev.results.length; i++) {
-        var r = ev.results[i], alts = [];
-        for (var j = 0; j < r.length; j++) alts.push(r[j].transcript);
-        v.queue.push({ key: v.session + ':' + i, text: alts.join(' | '), final: r.isFinal });
-      }
-    };
+    try {
+      rec = new SR();
+      rec.continuous = true;
+      rec.interimResults = true;
+      rec.maxAlternatives = 3;
+      rec.lang = 'en-US';
+
+      rec.onstart = function () {
+        v.active = true;
+        v.session++;
+        v.status = 'listening';
+      };
+
+      rec.onerror = function (e) {
+        // Benign events: silence timeout ('no-speech') or user cancellation ('aborted')
+        if (e.error === 'no-speech' || e.error === 'aborted') {
+          return;
+        }
+        // Fatal or system errors: stop retrying loop immediately!
+        want = false;
+        v.active = false;
+        if (e.error === 'not-allowed') {
+          v.status = 'mic blocked (allow in browser)';
+        } else if (e.error === 'audio-capture') {
+          v.status = 'no microphone found';
+        } else if (e.error === 'network') {
+          v.status = 'offline / speech service error';
+        } else {
+          v.status = 'error: ' + e.error;
+        }
+      };
+
+      rec.onend = function () {
+        v.active = false;
+        if (want) {
+          // Browser ended session naturally (e.g. after a period of silence); resume gently
+          setTimeout(function () {
+            if (want && !v.active) {
+              try {
+                rec.start();
+              } catch (err) {
+                want = false;
+                v.status = 'off (press V)';
+              }
+            }
+          }, 400);
+        } else {
+          if (!v.status.startsWith('error') && !v.status.startsWith('mic blocked') && !v.status.startsWith('no microphone') && !v.status.startsWith('offline')) {
+            v.status = 'off (press V)';
+          }
+        }
+      };
+
+      rec.onresult = function (ev) {
+        for (var i = ev.resultIndex; i < ev.results.length; i++) {
+          var r = ev.results[i], alts = [];
+          for (var j = 0; j < r.length; j++) alts.push(r[j].transcript);
+          v.queue.push({ key: v.session + ':' + i, text: alts.join(' | '), final: r.isFinal });
+        }
+      };
+    } catch (e) {
+      v.status = 'unsupported';
+      v.supported = false;
+    }
   }
+
   v.start = function () {
     if (!SR) return;
+    if (v.active) return;
     want = true;
     if (!rec) make();
-    v.status = 'starting';
-    try { rec.start(); } catch (e) {}
+    v.status = 'listening';
+    try {
+      rec.start();
+    } catch (err) {
+      want = false;
+      v.active = false;
+      v.status = 'off (press V)';
+    }
   };
-  v.stop = function () { want = false; v.status = 'off'; if (rec) { try { rec.stop(); } catch (e) {} } };
+
+  v.stop = function () {
+    want = false;
+    v.active = false;
+    v.status = 'off (press V)';
+    if (rec) {
+      try { rec.abort(); } catch (err) {}
+    }
+  };
+
   v.poll = function () {
     var q = v.queue; v.queue = [];
-    return JSON.stringify({ q: q, status: v.status, supported: v.supported });
+    return JSON.stringify({ q: q, status: v.status, supported: v.supported, active: v.active });
   };
 })();
 """
@@ -86,7 +146,7 @@ func _ready() -> void:
 			available = false
 			status = "not supported by this browser (use keys)"
 		else:
-			status = "off (press V / say Deploy)"
+			status = "off (press V)"
 	else:
 		status = "web only (use keys)"
 
@@ -129,14 +189,13 @@ func _process(delta: float) -> void:
 	var data = JSON.parse_string(raw)
 	if typeof(data) != TYPE_DICTIONARY:
 		return
-	var new_status: String = data.get("status", status)
-	if new_status == "listening":
-		new_status = "listening"
-	elif new_status == "off":
-		new_status = "off (press V)"
-	if new_status.begins_with("error: not-allowed"):
+	var new_status: String = str(data.get("status", status))
+	var is_active: bool = bool(data.get("active", false))
+	if new_status.begins_with("error") or new_status.begins_with("mic blocked") or new_status.begins_with("no microphone") or new_status.begins_with("offline") or new_status.begins_with("off"):
 		enabled = false
-		new_status = "mic blocked - allow microphone access"
+	elif is_active or new_status == "listening":
+		enabled = true
+
 	if new_status != status:
 		status = new_status
 		status_changed.emit(status)

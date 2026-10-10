@@ -75,7 +75,7 @@ func _ready() -> void:
 	voice = Voice.new()
 	add_child(voice)
 	voice.command_spoken.connect(_on_voice_command)
-	voice.status_changed.connect(func(s): _msg("Voice: " + s, Color(0.6, 0.8, 1.0)))
+	voice.status_changed.connect(func(s): print("[Voice] ", s))
 	sfx = Sfx.new()
 	add_child(sfx)
 	_build_world()
@@ -185,7 +185,12 @@ func _build_hud() -> void:
 	mic_btn.focus_mode = Control.FOCUS_NONE
 	mic_btn.position = Vector2(1222, Cfg.WORLD_SIZE.y + 8)
 	mic_btn.size = Vector2(50, 26)
-	mic_btn.pressed.connect(func(): voice.toggle())
+	mic_btn.pressed.connect(func():
+		voice.toggle()
+		if voice.enabled:
+			_msg("🎙️ Voice active (listening)", Color(0.4, 1.0, 0.6))
+		else:
+			_msg("🎙️ Voice muted", Color(0.7, 0.7, 0.7)))
 	hud_layer.add_child(mic_btn)
 	hud_layer.visible = false
 
@@ -329,7 +334,6 @@ func _on_welcome(s: int) -> void:
 	_reset_round_visuals()
 	_show_menu(false, "")
 	sfx.play("start", -6.0)
-	voice.start()
 
 
 func _on_rejected(reason: String) -> void:
@@ -544,7 +548,12 @@ func _unhandled_input(event: InputEvent) -> void:
 			KEY_E: _use_ability(Cfg.Ability.SCAN, false)
 			KEY_R: _use_ability(Cfg.Ability.SUPPRESS, false)
 			KEY_F: _use_ability(Cfg.Ability.RUSH, false)
-			KEY_V: voice.toggle()
+			KEY_V:
+				voice.toggle()
+				if voice.enabled:
+					_msg("🎙️ Voice active (listening)", Color(0.4, 1.0, 0.6))
+				else:
+					_msg("🎙️ Voice muted", Color(0.7, 0.7, 0.7))
 			KEY_ENTER, KEY_KP_ENTER:
 				if state == Cfg.State.ENDED:
 					Net.c_rematch.rpc_id(1)
