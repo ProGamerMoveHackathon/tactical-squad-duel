@@ -74,8 +74,7 @@ func _ready() -> void:
 	_reset_own()
 	voice = Voice.new()
 	add_child(voice)
-	voice.ability_spoken.connect(_on_voice_ability)
-	voice.select_spoken.connect(_on_voice_select)
+	voice.command_spoken.connect(_on_voice_command)
 	voice.status_changed.connect(func(s): _msg("Voice: " + s, Color(0.6, 0.8, 1.0)))
 	sfx = Sfx.new()
 	add_child(sfx)
@@ -252,12 +251,14 @@ func _build_menu() -> void:
 	box.add_child(status_label)
 	box.add_child(HSeparator.new())
 	var help := Label.new()
-	help.text = "Left click: move selected soldier   (Shift: keep facing)\n" \
-		+ "Right click / drag: set watch direction\n" \
-		+ "1 2 3 / Tab / click a soldier: switch soldier   (voice: alpha, bravo, charlie)\n" \
-		+ "Q Smoke · E Scan · R Suppress · F Rush   (or say it, after pressing V)\n" \
-		+ "Soldiers fire automatically at enemies inside their firing cone."
-	help.add_theme_font_size_override("font_size", 13)
+	help.text = "VOICE COMMANDS (Hands-Free):\n" \
+		+ "• Select: \"Alpha\", \"Bravo\", \"Charlie\", \"Squad\"\n" \
+		+ "• Move: \"Alpha to Mid\", \"Advance to North\", \"Fall back to Base\", \"Stop\"\n" \
+		+ "• Aim: \"Watch North\", \"Watch Mid\", \"Aim South\"\n" \
+		+ "• Abilities: \"Smoke Mid\", \"Scan\", \"Suppress\", \"Squad Rush\"\n" \
+		+ "• Match: \"Deploy\", \"Rematch\"\n\n" \
+		+ "Fallback: LMB move · RMB face · 1-3 select · Q E R F abilities · V mic toggle"
+	help.add_theme_font_size_override("font_size", 12)
 	help.add_theme_color_override("font_color", Color(0.75, 0.78, 0.82))
 	box.add_child(help)
 	name_edit.text_submitted.connect(func(_t): _on_connect_pressed())
@@ -303,6 +304,7 @@ func _default_url() -> String:
 
 
 func _on_connect_pressed() -> void:
+	voice.start()
 	var url := url_edit.text.strip_edges()
 	if not (url.begins_with("ws://") or url.begins_with("wss://")):
 		status_label.text = "Server address must start with ws:// or wss://"
@@ -327,6 +329,7 @@ func _on_welcome(s: int) -> void:
 	_reset_round_visuals()
 	_show_menu(false, "")
 	sfx.play("start", -6.0)
+	voice.start()
 
 
 func _on_rejected(reason: String) -> void:
@@ -569,16 +572,168 @@ func _use_ability(ability: int, via_voice: bool) -> void:
 	Net.c_ability.rpc_id(1, ability, world.get_local_mouse_position(), via_voice)
 
 
-func _on_voice_ability(ability: int, heard: String) -> void:
+func _soldier_name(idx: int) -> String:
+	match idx:
+		0: return "ALPHA"
+		1: return "BRAVO"
+		2: return "CHARLIE"
+		_: return "SOLDIER"
+
+
+func _on_voice_command(cmd: Dictionary) -> void:
+	var ctype: int = cmd.get("type", Voice.CmdType.NONE)
+	if ctype == Voice.CmdType.NONE:
+		return
+
+	# Meta commands (deploy / rematch)
+	if ctype == Voice.CmdType.DEPLOY:
+		if menu_layer.visible:
+			_msg("🎙️ Deploying...", Color(0.4, 0.9, 1.0))
+			_on_connect_pressed()
+		return
+	elif ctype == Voice.CmdType.REMATCH:
+		if state == Cfg.State.ENDED:
+			_msg("🎙️ Rematch requested", Color(0.4, 0.9, 1.0))
+			Net.c_rematch.rpc_id(1)
+		return
+
 	if slot < 0 or not Net.is_online():
 		return
-	sfx.play("voice", -8.0)
-	_msg("Heard \"%s\" -> %s" % [heard, Cfg.ABILITIES[ability]["name"]], Color(0.6, 0.8, 1.0))
-	_use_ability(ability, true)
 
-
-func _on_voice_select(idx: int, _heard: String) -> void:
-	if slot < 0:
-		return
 	sfx.play("voice", -8.0)
-	_select(idx)
+	var subj: int = cmd.get("subject", -2)
+
+	match ctype:
+		Voice.CmdType.SELECT:
+			if subj >= 0:
+				_select(subj)
+				_msg("🎙️ Selected %s" % _soldier_name(subj), Color(0.4, 0.9, 1.0))
+
+		Voice.CmdType.HALT:
+			if subj == -1:
+				var orig_sel := selected
+				for i in Cfg.SQUAD_SIZE:
+					if own[i]["alive"]:
+						_select(i)
+						Net.c_move.rpc_id(1, own[i]["disp"], false)
+				if own[orig_sel]["alive"]:
+					_select(orig_sel)
+				_msg("🎙️ [SQUAD] HALT", Color(1.0, 0.8, 0.4))
+			else:
+				var target_idx: int = subj if subj >= 0 else selected
+				if target_idx >= 0 and target_idx < own.size() and own[target_idx]["alive"]:
+					if target_idx != selected:
+						_select(target_idx)
+					Net.c_move.rpc_id(1, own[target_idx]["disp"], false)
+					_msg("🎙️ [%s] HALT" % _soldier_name(target_idx), Color(1.0, 0.8, 0.4))
+
+		Voice.CmdType.MOVE_CALLOUT:
+			var cid: String = cmd.get("param", "")
+			var target_pos: Vector2 = map.callout_position(cid, slot)
+			if target_pos == Vector2.ZERO:
+				return
+			if subj == -1:
+				var offsets := [Vector2(-24, 0), Vector2(24, -20), Vector2(0, 24)]
+				var orig_sel := selected
+				for i in Cfg.SQUAD_SIZE:
+					if own[i]["alive"]:
+						_select(i)
+						Net.c_move.rpc_id(1, target_pos + offsets[i], false)
+				if own[orig_sel]["alive"]:
+					_select(orig_sel)
+				_msg("🎙️ [SQUAD] Move -> %s" % cid.to_upper(), Color(0.4, 0.9, 1.0))
+			else:
+				var target_idx: int = subj if subj >= 0 else selected
+				if target_idx >= 0 and target_idx < own.size() and own[target_idx]["alive"]:
+					if target_idx != selected:
+						_select(target_idx)
+					Net.c_move.rpc_id(1, target_pos, false)
+					_msg("🎙️ [%s] Move -> %s" % [_soldier_name(target_idx), cid.to_upper()], Color(0.4, 0.9, 1.0))
+
+		Voice.CmdType.MOVE_DIR:
+			var dir_name: String = cmd.get("param", "")
+			var angle: float = map.team_direction_angle(dir_name, slot)
+			var step_vec := Vector2.from_angle(angle) * 140.0
+			if subj == -1:
+				var orig_sel := selected
+				for i in Cfg.SQUAD_SIZE:
+					if own[i]["alive"]:
+						_select(i)
+						var dest: Vector2 = own[i]["disp"] + step_vec
+						dest.x = clampf(dest.x, Cfg.TILE, Cfg.WORLD_SIZE.x - Cfg.TILE)
+						dest.y = clampf(dest.y, Cfg.TILE, Cfg.WORLD_SIZE.y - Cfg.TILE)
+						Net.c_move.rpc_id(1, dest, false)
+				if own[orig_sel]["alive"]:
+					_select(orig_sel)
+				_msg("🎙️ [SQUAD] Step %s" % dir_name.to_upper(), Color(0.4, 0.9, 1.0))
+			else:
+				var target_idx: int = subj if subj >= 0 else selected
+				if target_idx >= 0 and target_idx < own.size() and own[target_idx]["alive"]:
+					if target_idx != selected:
+						_select(target_idx)
+					var dest: Vector2 = own[target_idx]["disp"] + step_vec
+					dest.x = clampf(dest.x, Cfg.TILE, Cfg.WORLD_SIZE.x - Cfg.TILE)
+					dest.y = clampf(dest.y, Cfg.TILE, Cfg.WORLD_SIZE.y - Cfg.TILE)
+					Net.c_move.rpc_id(1, dest, false)
+					_msg("🎙️ [%s] Step %s" % [_soldier_name(target_idx), dir_name.to_upper()], Color(0.4, 0.9, 1.0))
+
+		Voice.CmdType.WATCH_DIR:
+			var dir_name: String = cmd.get("param", "")
+			var angle: float = map.team_direction_angle(dir_name, slot)
+			if subj == -1:
+				var orig_sel := selected
+				for i in Cfg.SQUAD_SIZE:
+					if own[i]["alive"]:
+						_select(i)
+						Net.c_face.rpc_id(1, own[i]["disp"] + Vector2.from_angle(angle) * 100.0)
+				if own[orig_sel]["alive"]:
+					_select(orig_sel)
+				_msg("🎙️ [SQUAD] Watch %s" % dir_name.to_upper(), Color(0.4, 0.9, 1.0))
+			else:
+				var target_idx: int = subj if subj >= 0 else selected
+				if target_idx >= 0 and target_idx < own.size() and own[target_idx]["alive"]:
+					if target_idx != selected:
+						_select(target_idx)
+					Net.c_face.rpc_id(1, own[target_idx]["disp"] + Vector2.from_angle(angle) * 100.0)
+					_msg("🎙️ [%s] Watch %s" % [_soldier_name(target_idx), dir_name.to_upper()], Color(0.4, 0.9, 1.0))
+
+		Voice.CmdType.WATCH_CALLOUT:
+			var cid: String = cmd.get("param", "")
+			var target_pos: Vector2 = map.callout_position(cid, slot)
+			if target_pos == Vector2.ZERO:
+				return
+			if subj == -1:
+				var orig_sel := selected
+				for i in Cfg.SQUAD_SIZE:
+					if own[i]["alive"]:
+						_select(i)
+						Net.c_face.rpc_id(1, target_pos)
+				if own[orig_sel]["alive"]:
+					_select(orig_sel)
+				_msg("🎙️ [SQUAD] Watch %s" % cid.to_upper(), Color(0.4, 0.9, 1.0))
+			else:
+				var target_idx: int = subj if subj >= 0 else selected
+				if target_idx >= 0 and target_idx < own.size() and own[target_idx]["alive"]:
+					if target_idx != selected:
+						_select(target_idx)
+					Net.c_face.rpc_id(1, target_pos)
+					_msg("🎙️ [%s] Watch %s" % [_soldier_name(target_idx), cid.to_upper()], Color(0.4, 0.9, 1.0))
+
+		Voice.CmdType.ABILITY:
+			var ab: int = cmd.get("ability", -1)
+			if ab < 0 or not Cfg.ABILITIES.has(ab):
+				return
+			var target_idx: int = subj if subj >= 0 else selected
+			if target_idx >= 0 and target_idx < own.size() and own[target_idx]["alive"]:
+				if target_idx != selected:
+					_select(target_idx)
+			var target_pos := Vector2.ZERO
+			var t_callout: String = cmd.get("target", "")
+			if t_callout != "":
+				target_pos = map.callout_position(t_callout, slot)
+			else:
+				var cur: Dictionary = own[selected]
+				var face_ang: float = cur.get("disp_facing", cur.get("facing", 0.0))
+				target_pos = cur.get("disp", Vector2.ZERO) + Vector2.from_angle(face_ang) * 160.0
+			_msg("🎙️ [%s] %s" % [_soldier_name(selected), Cfg.ABILITIES[ab]["name"].to_upper()], Color(0.5, 1.0, 0.7))
+			Net.c_ability.rpc_id(1, ab, target_pos, true)

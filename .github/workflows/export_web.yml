@@ -9,34 +9,59 @@ on:
 
 jobs:
   export-web:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v7
         with:
           python-version: '3.x'
 
+      - name: Cache Godot & Web Export Templates
+        id: cache-godot
+        uses: actions/cache@v6
+        with:
+          path: |
+            ~/.local/godot
+            ~/.local/share/godot/export_templates/4.7.2.stable
+          key: godot-4.7.2-linux-web
+
       - name: Download Godot 4.7.2 & Web Export Templates
+        if: steps.cache-godot.outputs.cache-hit != 'true'
         run: |
-          mkdir -p ~/.local/share/godot/export_templates/4.7.2.stable /opt/godot
-          # Download headless-compatible Godot Linux binary
-          curl -sSL "https://github.com/godotengine/godot/releases/download/4.7.2-stable/Godot_v4.7.2-stable_linux.x86_64.zip" -o /tmp/godot.zip
-          unzip -q /tmp/godot.zip -d /opt/godot/
-          sudo ln -s /opt/godot/Godot_v4.7.2-stable_linux.x86_64 /usr/local/bin/godot
-          # Download only web templates using helper script
+          mkdir -p ~/.local/godot ~/.local/share/godot/export_templates/4.7.2.stable /tmp/godot-dl
+          GODOT_URL="https://github.com/godotengine/godot/releases/download/4.7.2-stable/Godot_v4.7.2-stable_linux.x86_64.zip"
+          echo "Downloading Godot 4.7.2 from ${GODOT_URL}..."
+          curl -fSL --retry 5 --retry-delay 2 --retry-all-errors \
+            -H "User-Agent: Mozilla/5.0 (GitHubActions; Linux x86_64)" \
+            "${GODOT_URL}" -o /tmp/godot-dl/godot.zip
+
+          echo "Verifying archive..."
+          unzip -t /tmp/godot-dl/godot.zip > /dev/null
+          unzip -q /tmp/godot-dl/godot.zip -d ~/.local/godot/
+          rm -rf /tmp/godot-dl
+
           python3 tools/fetch_web_templates.py 4.7.2
+
+      - name: Configure Godot Binary
+        run: |
+          chmod +x ~/.local/godot/Godot_v4.7.2-stable_linux.x86_64
+          ln -sf ~/.local/godot/Godot_v4.7.2-stable_linux.x86_64 ~/.local/godot/godot
+          echo "$HOME/.local/godot" >> $GITHUB_PATH
+          sudo ln -sf ~/.local/godot/godot /usr/local/bin/godot
+          godot --version || /usr/local/bin/godot --version
 
       - name: Export Web Client
         run: |
           mkdir -p build/web
+          touch build/.gdignore
           godot --headless --path . --import || true
           godot --headless --path . --export-release "Web" build/web/index.html
 
       - name: Upload Web Build Artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: tactical-squad-duel-web
           path: build/web/

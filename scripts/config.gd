@@ -48,10 +48,45 @@ const ABILITIES := {
 ## Spoken phrases that trigger each ability (lower-case, matched as whole words /
 ## word sequences). Includes a few common speech-recognition mishearings.
 const VOICE_PHRASES := {
-	Ability.SMOKE: ["smoke", "smoked", "smokes", "smoking", "smog", "smoky"],
+	Ability.SMOKE: ["smoke", "smoked", "smokes", "smoking", "smog", "smoky", "pop smoke"],
 	Ability.SCAN: ["scan", "scans", "scanning", "scanner", "radar", "ping"],
 	Ability.SUPPRESS: ["suppress", "suppressing", "suppression", "surpress", "oppress", "cover fire", "covering fire"],
 	Ability.RUSH: ["rush", "rushing", "russia", "brush", "sprint", "go go"],
+}
+
+## Voice command vocabulary for 100% hands-free tactical control.
+const VOICE_SUBJECTS := {
+	0: ["alpha", "alfa", "one", "first", "rifle", "sniper"],
+	1: ["bravo", "two", "second", "smg", "gunner"],
+	2: ["charlie", "three", "third", "shotgun", "breacher"],
+	-1: ["squad", "all", "team", "everyone"],
+}
+
+const VOICE_CALLOUTS := {
+	"mid": ["mid", "middle", "center", "centre"],
+	"north": ["north", "top", "upper"],
+	"south": ["south", "bottom", "lower"],
+	"base": ["base", "home", "spawn", "headquarters"],
+	"yard": ["yard", "courtyard", "patio"],
+	"choke": ["choke", "door", "bridge", "gate"],
+	"flank": ["flank", "alley", "side"],
+	"pillar": ["pillar", "cover", "box", "rock"],
+	"enemy": ["enemy", "enemy base", "their base", "push deep", "deep"],
+}
+
+const VOICE_DIRECTIONS := {
+	"north": ["north", "up", "upward"],
+	"south": ["south", "down", "downward"],
+	"east": ["east", "forward", "front", "ahead", "right"],
+	"west": ["west", "back", "rear", "behind", "left"],
+}
+
+const VOICE_ACTIONS := {
+	"move": ["move to", "move", "go to", "go", "advance to", "advance", "run to", "run", "push to", "push", "walk to", "walk", "proceed to", "proceed", "step", "fall back to", "fall back", "retreat to", "retreat"],
+	"watch": ["watch", "face", "look", "aim", "cover", "point", "hold angle"],
+	"halt": ["stop", "halt", "hold position", "hold", "stay", "freeze", "cancel"],
+	"deploy": ["deploy", "ready", "start", "play", "join"],
+	"rematch": ["rematch", "play again", "again", "restart"],
 }
 ## Recently moved enemies are what "Scan" reveals.
 const SCAN_MOVE_MEMORY := 1.5

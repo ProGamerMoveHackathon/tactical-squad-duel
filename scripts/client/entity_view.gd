@@ -36,6 +36,11 @@ func _draw() -> void:
 		draw_line(p + Vector2(-7, -7), p + Vector2(7, 7), col, 3.0)
 		draw_line(p + Vector2(-7, 7), p + Vector2(7, -7), col, 3.0)
 
+	# Tactical Callout Landmarks (always visible for voice navigation)
+	for cid in game.map.CALLOUT_POSITIONS:
+		var cp: Vector2 = game.map.callout_position(cid, my_team)
+		_draw_callout_badge(cp, cid.to_upper())
+
 	# Own firing cones (clipped by walls / smoke)
 	for o in game.own:
 		if not o["alive"]:
@@ -198,3 +203,11 @@ func _draw_dashed(a: Vector2, b: Vector2, col: Color) -> void:
 	while t < length:
 		draw_line(a + d * t, a + d * minf(t + 8.0, length), col, 2.0)
 		t += 14.0
+
+
+func _draw_callout_badge(p: Vector2, text: String) -> void:
+	var col := Color(0.4, 0.78, 1.0, 0.5)
+	draw_circle(p, 2.5, col)
+	draw_arc(p, 8.0, 0.0, TAU, 16, Color(col.r, col.g, col.b, 0.25), 1.0)
+	_draw_label(p + Vector2(0, -12), "[" + text + "]", col, 10)
+

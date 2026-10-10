@@ -41,6 +41,7 @@ func _draw() -> void:
 	draw_rect(Rect2(0, top, vw, BAR_H), Color(0.07, 0.08, 0.10))
 	draw_line(Vector2(0, top), Vector2(vw, top), my_col.darkened(0.3), 2.0)
 
+	const SQUAD_NAMES := ["Alpha", "Bravo", "Charlie"]
 	# Soldier cards
 	for i in Cfg.SQUAD_SIZE:
 		var o: Dictionary = game.own[i] if i < game.own.size() else {}
@@ -53,7 +54,7 @@ func _draw() -> void:
 			draw_rect(r, Color(1, 1, 1, 0.9), false, 2.0)
 		var w: Dictionary = Cfg.WEAPONS[Cfg.SQUAD_WEAPONS[i]]
 		_text(Vector2(x + 8, top + 26), "%d" % (i + 1), 18, my_col if alive else Color(0.4, 0.4, 0.4))
-		_text(Vector2(x + 28, top + 25), w["name"], 15, Color.WHITE if alive else Color(0.5, 0.5, 0.5))
+		_text(Vector2(x + 28, top + 25), "%s · %s" % [SQUAD_NAMES[i], w["name"]], 13, Color.WHITE if alive else Color(0.5, 0.5, 0.5))
 		var hp: int = o.get("hp", Cfg.SOLDIER_HP)
 		if alive:
 			var frac := hp / float(Cfg.SOLDIER_HP)
@@ -94,7 +95,13 @@ func _draw() -> void:
 	var vx := 1008.0
 	var vstatus: String = game.voice.status
 	var listening: bool = game.voice.enabled and vstatus == "listening"
-	draw_circle(Vector2(vx + 10, top + 20), 6, Color(0.2, 1.0, 0.4) if listening else (Color(1.0, 0.7, 0.2) if game.voice.enabled else Color(0.4, 0.4, 0.4)))
+	var dot_center := Vector2(vx + 10, top + 20)
+	if listening:
+		var pulse := 1.0 + 0.35 * sin(game.time * 8.0)
+		draw_circle(dot_center, 6.0, Color(0.2, 1.0, 0.4))
+		draw_arc(dot_center, 9.0 * pulse, 0.0, TAU, 16, Color(0.2, 1.0, 0.4, 0.4), 1.5)
+	else:
+		draw_circle(dot_center, 6.0, Color(1.0, 0.7, 0.2) if game.voice.enabled else Color(0.4, 0.4, 0.4))
 	_text(Vector2(vx + 22, top + 25), "Voice [V]: " + vstatus, 12, Color(0.85, 0.85, 0.85), HORIZONTAL_ALIGNMENT_LEFT, 250)
 	if game.voice.last_heard != "":
 		_text(Vector2(vx + 22, top + 41), "heard: \"%s\"" % game.voice.last_heard, 11, Color(0.6, 0.8, 1.0), HORIZONTAL_ALIGNMENT_LEFT, 250)
@@ -118,7 +125,7 @@ func _draw() -> void:
 	var them_str: String = them if them != "" else "waiting for opponent..."
 	var tw := font.get_string_size(them_str, HORIZONTAL_ALIGNMENT_LEFT, -1, 14).x
 	_text(Vector2(vw - tw - 8, 16), them_str, 14, en_col)
-	_text_center(vw * 0.5, 16, "LMB move · Shift+LMB move & keep facing · RMB face · 1-3 / Tab select · Q E R F abilities · V voice", 11, Color(0.75, 0.75, 0.75), false)
+	_text_center(vw * 0.5, 16, "Voice: \"Alpha to Mid\" · \"Watch North\" · \"Squad Rush\" · \"Halt\" | Fallback: LMB/RMB · 1-3 · Q E R F · V mic", 11, Color(0.8, 0.82, 0.85), false)
 
 	# Banners
 	var by := 52.0
@@ -150,4 +157,4 @@ func _draw() -> void:
 			_text_center(vw * 0.5, center_y - 20, txt, 72, col)
 			var votes: Array = game.rematch_votes
 			var mine: bool = votes.size() > game.slot and votes[game.slot]
-			_text_center(vw * 0.5, center_y + 70, "Waiting for opponent to accept rematch..." if mine else "Press Enter for a rematch", 18, Color(0.9, 0.9, 0.9))
+			_text_center(vw * 0.5, center_y + 70, "Waiting for opponent to accept rematch..." if mine else "Press Enter or say \"Rematch\"", 18, Color(0.9, 0.9, 0.9))

@@ -7,6 +7,8 @@ Usage: python3 tools/fetch_web_templates.py [version]   (default 4.7.2)
 import io
 import os
 import sys
+import time
+import urllib.error
 import urllib.request
 import zipfile
 
@@ -25,10 +27,18 @@ DEST = os.path.join(BASE, f"{VERSION}.stable")
 
 class HttpRangeFile(io.RawIOBase):
     def __init__(self, url):
-        req = urllib.request.Request(url, method="HEAD")
-        with urllib.request.urlopen(req) as r:
-            self.url = r.geturl()  # follow redirect once
-            self.size = int(r.headers["Content-Length"])
+        self.headers = {"User-Agent": "Mozilla/5.0 (GodotTemplateFetcher/1.0)"}
+        req = urllib.request.Request(url, method="HEAD", headers=self.headers)
+        for attempt in range(5):
+            try:
+                with urllib.request.urlopen(req, timeout=30) as r:
+                    self.url = r.geturl()  # follow redirect once
+                    self.size = int(r.headers["Content-Length"])
+                break
+            except Exception as e:
+                if attempt == 4:
+                    raise
+                time.sleep(1 + attempt)
         self.pos = 0
 
     def seekable(self):
@@ -55,11 +65,18 @@ class HttpRangeFile(io.RawIOBase):
         if n == 0 or self.pos >= self.size:
             return b""
         end = min(self.pos + n, self.size) - 1
-        req = urllib.request.Request(self.url, headers={"Range": f"bytes={self.pos}-{end}"})
-        with urllib.request.urlopen(req) as r:
-            data = r.read()
-        self.pos += len(data)
-        return data
+        headers = {**self.headers, "Range": f"bytes={self.pos}-{end}"}
+        req = urllib.request.Request(self.url, headers=headers)
+        for attempt in range(5):
+            try:
+                with urllib.request.urlopen(req, timeout=30) as r:
+                    data = r.read()
+                self.pos += len(data)
+                return data
+            except Exception as e:
+                if attempt == 4:
+                    raise
+                time.sleep(1 + attempt)
 
     def readinto(self, b):
         data = self.read(len(b))
@@ -69,6 +86,11 @@ class HttpRangeFile(io.RawIOBase):
 
 def main():
     os.makedirs(DEST, exist_ok=True)
+    expected = ["web_release.zip", "web_debug.zip", "version.txt"]
+    if all(os.path.exists(os.path.join(DEST, f)) and os.path.getsize(os.path.join(DEST, f)) > 0 for f in expected):
+        print(f"Templates already present in {DEST}, skipping download.")
+        return
+
     print(f"Opening {URL}")
     f = io.BufferedReader(HttpRangeFile(URL), buffer_size=1 << 20)
     with zipfile.ZipFile(f) as z:

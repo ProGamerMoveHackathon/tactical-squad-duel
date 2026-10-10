@@ -1,19 +1,27 @@
 extends Node
 ## Voice commands through the browser's Web Speech API (Chrome / Edge / Safari),
-## bridged into Godot with JavaScriptBridge. Recognised phrases are turned into
-## ability / selection commands. Every command also has a keyboard shortcut, so
-## the game is fully playable without a microphone.
+## bridged into Godot with JavaScriptBridge. Recognised phrases are parsed using
+## a tactical squad grammar ([Who] [Action] [Where/Target]) allowing 100% hands-free
+## gameplay.
 
 const Cfg = preload("res://scripts/config.gd")
 
+signal command_spoken(cmd: Dictionary)
 signal ability_spoken(ability: int, heard: String)
 signal select_spoken(idx: int, heard: String)
 signal status_changed(status: String)
 
-const SELECT_PHRASES := {
-	0: ["alpha", "alfa"],
-	1: ["bravo"],
-	2: ["charlie"],
+enum CmdType {
+	NONE,
+	SELECT,
+	MOVE_CALLOUT,
+	MOVE_DIR,
+	WATCH_DIR,
+	WATCH_CALLOUT,
+	HALT,
+	ABILITY,
+	DEPLOY,
+	REMATCH
 }
 
 const JS_SETUP := """
@@ -78,19 +86,34 @@ func _ready() -> void:
 			available = false
 			status = "not supported by this browser (use keys)"
 		else:
-			status = "off (press V)"
+			status = "off (press V / say Deploy)"
 	else:
 		status = "web only (use keys)"
 
 
-func toggle() -> void:
-	if not available:
-		status_changed.emit(status)
+func start() -> void:
+	if not available or enabled:
 		return
-	enabled = not enabled
-	JavaScriptBridge.eval("window.tsdVoice.%s()" % ("start" if enabled else "stop"), true)
-	status = "starting..." if enabled else "off (press V)"
+	enabled = true
+	JavaScriptBridge.eval("window.tsdVoice.start()", true)
+	status = "listening"
 	status_changed.emit(status)
+
+
+func stop() -> void:
+	if not available or not enabled:
+		return
+	enabled = false
+	JavaScriptBridge.eval("window.tsdVoice.stop()", true)
+	status = "off (press V)"
+	status_changed.emit(status)
+
+
+func toggle() -> void:
+	if enabled:
+		stop()
+	else:
+		start()
 
 
 func _process(delta: float) -> void:
@@ -123,38 +146,116 @@ func _process(delta: float) -> void:
 
 func _handle_result(key: String, text: String, is_final: bool) -> void:
 	var lower := text.to_lower()
-	# Use only the best alternative for display, all alternatives for matching.
 	var best := lower.split(" | ")[0].strip_edges()
 	if best != "":
 		last_heard = best
 	var fired: Array = _fired.get(key, [])
-	for ability in Cfg.VOICE_PHRASES:
-		var cmd_id := "a%d" % ability
-		if cmd_id in fired:
-			continue
-		if _matches(lower, Cfg.VOICE_PHRASES[ability]):
-			fired.append(cmd_id)
-			ability_spoken.emit(ability, best)
-	for idx in SELECT_PHRASES:
-		var cmd_id := "s%d" % idx
-		if cmd_id in fired:
-			continue
-		if _matches(lower, SELECT_PHRASES[idx]):
-			fired.append(cmd_id)
-			select_spoken.emit(idx, best)
-	_fired[key] = fired
+
+	for alt in text.split(" | "):
+		var cmd := parse_voice(alt)
+		if cmd["type"] != CmdType.NONE:
+			var cmd_key := "%d:%s:%s" % [cmd["type"], str(cmd.get("subject", "")), str(cmd.get("param", cmd.get("ability", "")))]
+			if cmd_key in fired:
+				continue
+			fired.append(cmd_key)
+			_fired[key] = fired
+			command_spoken.emit(cmd)
+			if cmd["type"] == CmdType.SELECT and cmd.get("subject", -1) >= 0:
+				select_spoken.emit(cmd["subject"], best)
+			elif cmd["type"] == CmdType.ABILITY:
+				ability_spoken.emit(cmd["ability"], best)
+			break
+
 	if is_final and _fired.size() > 64:
 		_fired.clear()
 
 
-static func _matches(text: String, phrases: Array) -> bool:
-	# Whole-word matching across all alternatives.
-	var cleaned := ""
-	for c in text:
-		cleaned += c if (c >= "a" and c <= "z") or c == "|" else " "
-	for alt in cleaned.split("|"):
-		var padded := " " + " ".join(alt.split(" ", false)) + " "
-		for p in phrases:
-			if padded.find(" " + p + " ") != -1:
-				return true
-	return false
+## Static natural grammar parser for testing and runtime.
+static func parse_voice(raw: String) -> Dictionary:
+	var cleaned := " "
+	var lower := raw.to_lower()
+	for c in lower:
+		if (c >= "a" and c <= "z") or (c >= "0" and c <= "9"):
+			cleaned += c
+		else:
+			cleaned += " "
+	cleaned = " " + " ".join(cleaned.split(" ", false)) + " "
+
+	# 1. Meta match commands
+	for w in Cfg.VOICE_ACTIONS["deploy"]:
+		if cleaned.find(" " + w + " ") != -1:
+			return {"type": CmdType.DEPLOY, "text": raw}
+	for w in Cfg.VOICE_ACTIONS["rematch"]:
+		if cleaned.find(" " + w + " ") != -1:
+			return {"type": CmdType.REMATCH, "text": raw}
+
+	# 2. Extract Subject (Alpha, Bravo, Charlie, Squad, or default -2)
+	var subject := -2
+	for s_id in Cfg.VOICE_SUBJECTS:
+		for w in Cfg.VOICE_SUBJECTS[s_id]:
+			var needle: String = " " + str(w) + " "
+			var idx: int = cleaned.find(needle)
+			if idx != -1:
+				subject = s_id
+				cleaned = cleaned.erase(idx, needle.length())
+				cleaned = " " + " ".join(cleaned.split(" ", false)) + " "
+				break
+		if subject != -2:
+			break
+
+	# 3. Halt / Stop command
+	for w in Cfg.VOICE_ACTIONS["halt"]:
+		if cleaned.find(" " + w + " ") != -1:
+			return {"type": CmdType.HALT, "subject": subject, "text": raw}
+
+	# 4. Abilities
+	for ab_id in Cfg.VOICE_PHRASES:
+		for w in Cfg.VOICE_PHRASES[ab_id]:
+			if cleaned.find(" " + w + " ") != -1:
+				var target_callout := ""
+				for c_id in Cfg.VOICE_CALLOUTS:
+					for cw in Cfg.VOICE_CALLOUTS[c_id]:
+						if cleaned.find(" " + cw + " ") != -1:
+							target_callout = c_id
+							break
+					if target_callout != "":
+						break
+				return {"type": CmdType.ABILITY, "ability": ab_id, "subject": subject, "target": target_callout, "text": raw}
+
+	# 5. Watch / Aim command
+	var is_watch := false
+	for w in Cfg.VOICE_ACTIONS["watch"]:
+		if cleaned.find(" " + w + " ") != -1:
+			is_watch = true
+			break
+	if is_watch:
+		for d_id in Cfg.VOICE_DIRECTIONS:
+			for dw in Cfg.VOICE_DIRECTIONS[d_id]:
+				if cleaned.find(" " + dw + " ") != -1:
+					return {"type": CmdType.WATCH_DIR, "subject": subject, "param": d_id, "text": raw}
+		for c_id in Cfg.VOICE_CALLOUTS:
+			for cw in Cfg.VOICE_CALLOUTS[c_id]:
+				if cleaned.find(" " + cw + " ") != -1:
+					return {"type": CmdType.WATCH_CALLOUT, "subject": subject, "param": c_id, "text": raw}
+
+	# 6. Move command to callout or direction
+	for c_id in Cfg.VOICE_CALLOUTS:
+		for cw in Cfg.VOICE_CALLOUTS[c_id]:
+			if cleaned.find(" " + cw + " ") != -1:
+				return {"type": CmdType.MOVE_CALLOUT, "subject": subject, "param": c_id, "text": raw}
+
+	for d_id in Cfg.VOICE_DIRECTIONS:
+		for dw in Cfg.VOICE_DIRECTIONS[d_id]:
+			if cleaned.find(" " + dw + " ") != -1:
+				return {"type": CmdType.MOVE_DIR, "subject": subject, "param": d_id, "text": raw}
+
+	if cleaned.find(" advance ") != -1 or cleaned.find(" push forward ") != -1 or cleaned.find(" push ") != -1:
+		return {"type": CmdType.MOVE_DIR, "subject": subject, "param": "east", "text": raw}
+	if cleaned.find(" fall back ") != -1 or cleaned.find(" retreat ") != -1:
+		return {"type": CmdType.MOVE_DIR, "subject": subject, "param": "west", "text": raw}
+
+	# 7. Pure Selection
+	if subject >= 0:
+		return {"type": CmdType.SELECT, "subject": subject, "text": raw}
+
+	return {"type": CmdType.NONE, "text": raw}

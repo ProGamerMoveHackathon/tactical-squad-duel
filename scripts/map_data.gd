@@ -85,6 +85,42 @@ func spawn_facing(team: int) -> float:
 	return 0.0 if team == 0 else PI
 
 
+## Tactical callout waypoints (Team 0 coordinates).
+## For Team 1, positions are inverted (Cfg.WORLD_SIZE - p) so callouts match the screen.
+const CALLOUT_POSITIONS := {
+	"base": Vector2(3.5 * Cfg.TILE, 11.0 * Cfg.TILE),
+	"yard": Vector2(9.0 * Cfg.TILE, 11.0 * Cfg.TILE),
+	"choke": Vector2(13.5 * Cfg.TILE, 5.5 * Cfg.TILE),
+	"flank": Vector2(13.5 * Cfg.TILE, 16.5 * Cfg.TILE),
+	"pillar": Vector2(16.5 * Cfg.TILE, 9.0 * Cfg.TILE),
+	"mid": Vector2(20.0 * Cfg.TILE, 9.0 * Cfg.TILE),
+	"north": Vector2(20.0 * Cfg.TILE, 2.0 * Cfg.TILE),
+	"south": Vector2(20.0 * Cfg.TILE, 19.5 * Cfg.TILE),
+	"enemy": Vector2(36.5 * Cfg.TILE, 11.0 * Cfg.TILE),
+}
+
+
+func callout_position(callout_id: String, team: int) -> Vector2:
+	if not CALLOUT_POSITIONS.has(callout_id):
+		return Vector2.ZERO
+	var p: Vector2 = CALLOUT_POSITIONS[callout_id]
+	if team == 1:
+		p = Cfg.WORLD_SIZE - p
+	return p
+
+
+func team_direction_angle(dir_name: String, team: int) -> float:
+	var a := 0.0
+	match dir_name:
+		"north", "up": a = -PI * 0.5
+		"south", "down": a = PI * 0.5
+		"east", "forward", "front", "ahead", "right": a = 0.0
+		"west", "back", "rear", "behind", "left": a = PI
+	if team == 1:
+		a = wrapf(a + PI, -PI, PI)
+	return a
+
+
 ## Distance along a normalised direction until the first wall (capped at max_d).
 func raycast(o: Vector2, d: Vector2, max_d: float) -> float:
 	var x := floori(o.x / T)
