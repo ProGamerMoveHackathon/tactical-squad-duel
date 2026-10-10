@@ -1,0 +1,43 @@
+name: Export Web Client
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+jobs:
+  export-web:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      - name: Download Godot 4.7.2 & Web Export Templates
+        run: |
+          mkdir -p ~/.local/share/godot/export_templates/4.7.2.stable /opt/godot
+          # Download headless-compatible Godot Linux binary
+          curl -sSL "https://github.com/godotengine/godot/releases/download/4.7.2-stable/Godot_v4.7.2-stable_linux.x86_64.zip" -o /tmp/godot.zip
+          unzip -q /tmp/godot.zip -d /opt/godot/
+          sudo ln -s /opt/godot/Godot_v4.7.2-stable_linux.x86_64 /usr/local/bin/godot
+          # Download only web templates using helper script
+          python3 tools/fetch_web_templates.py 4.7.2
+
+      - name: Export Web Client
+        run: |
+          mkdir -p build/web
+          godot --headless --path . --import || true
+          godot --headless --path . --export-release "Web" build/web/index.html
+
+      - name: Upload Web Build Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: tactical-squad-duel-web
+          path: build/web/
+          retention-days: 14

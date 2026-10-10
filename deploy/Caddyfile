@@ -1,0 +1,22 @@
+# Caddy config for the hackathon VM.
+# - Serves the exported web client over HTTPS (automatic Let's Encrypt cert)
+# - Proxies secure WebSockets  wss://<domain>/ws  ->  Godot server on localhost:9080
+#
+# Replace game.example.com with the VM's DNS name. (If you only have an IP,
+# use ":443" plus "tls internal" - browsers will warn about the self-signed cert.)
+# Browsers only allow microphone access on HTTPS (or localhost), so HTTPS is
+# required for voice commands.
+
+game.example.com {
+	encode gzip
+
+	handle /ws* {
+		reverse_proxy 127.0.0.1:9080
+	}
+
+	handle {
+		root * /opt/tactical-squad-duel/build/web
+		header Cache-Control "no-cache"
+		file_server
+	}
+}
