@@ -1300,6 +1300,13 @@ func _use_ability(ability: int, via_voice: bool) -> bool:
 
 
 func _use_ability_at(ability: int, target: Vector2, via_voice: bool) -> bool:
+	if not _ability_ready(ability):
+		return false
+	Net.c_ability.rpc_id(1, ability, target, via_voice)
+	return true
+
+
+func _ability_ready(ability: int) -> bool:
 	if ability < cooldowns.size() and cooldowns[ability] > 0.0:
 		_msg("%s is cooling down (%.1fs)" % [Cfg.ABILITIES[ability]["name"], cooldowns[ability]], Color(0.72, 0.72, 0.76))
 		sfx.play("deny", -8.0)
@@ -1308,8 +1315,27 @@ func _use_ability_at(ability: int, target: Vector2, via_voice: bool) -> bool:
 		_msg("No ready squad member can cast %s" % Cfg.ABILITIES[ability]["name"], Color(0.35, 0.72, 1.0))
 		sfx.play("deny", -8.0)
 		return false
-	Net.c_ability.rpc_id(1, ability, target, via_voice)
 	return true
+
+
+## A spoken spell is cast by every living squad member that has it equipped and
+## enough MP, whoever was named. Fireballs fly from each caster along the spoken
+## direction, or straight ahead of that caster.
+func _voice_cast(cmd: Dictionary) -> void:
+	var ab: int = cmd["ability"]
+	if not _ability_ready(ab):
+		return
+	var dir: Vector2 = cmd.get("dir", Vector2.ZERO)
+	var world_dir := _world_dir(dir) if dir != Vector2.ZERO else Vector2.ZERO
+	Net.c_ability_dir.rpc_id(1, ab, world_dir)
+	if ab != Cfg.Ability.FIREBALL:
+		return
+	var mp_cost: float = Cfg.ABILITIES[ab]["mp_cost"]
+	for i in own.size():
+		var o: Dictionary = own[i]
+		if o["alive"] and has_equipped_ability(i, ab) and float(o["mp"]) >= mp_cost:
+			var d := world_dir if world_dir != Vector2.ZERO else Vector2.from_angle(o["facing"])
+			_ping(o["pos"] + d * Cfg.VOICE_CAST_DISTANCE, "FIREBALL")
 
 
 ## Ability in the W / E / R slot of the named soldier (or the selected one).
@@ -1350,6 +1376,10 @@ func _on_voice_command(cmd: Dictionary) -> void:
 	if subj >= 0:
 		_select(subj)
 
+	if ctype == Voice.CmdType.ABILITY:
+		_voice_cast(cmd)
+		return
+
 	match ctype:
 		Voice.CmdType.SELECT_NEXT:
 			_cycle_select()
@@ -1379,15 +1409,6 @@ func _on_voice_command(cmd: Dictionary) -> void:
 			for i in units:
 				Net.c_unit_face.rpc_id(1, i, own[i]["pos"] + dir * 100.0)
 				_ping(own[i]["pos"] + dir * 48.0, "")
-
-		Voice.CmdType.ABILITY:
-			var ab: int = cmd["ability"]
-			var caster: Dictionary = own[selected]
-			var target: Vector2 = caster["pos"] + Vector2.from_angle(caster["facing"]) * 160.0
-			if cmd.get("dir", Vector2.ZERO) != Vector2.ZERO:
-				target = caster["pos"] + _world_dir(cmd["dir"]) * 200.0
-			if _use_ability_at(ab, target, true) and ab == Cfg.Ability.FIREBALL:
-				_ping(target, "FIREBALL")
 
 
 func _voice_move(idx: int, dest: Vector2, queue: bool) -> void:

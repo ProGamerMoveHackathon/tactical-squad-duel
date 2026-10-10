@@ -303,8 +303,24 @@ func on_unit_stop(id: int, idx: int) -> void:
 
 
 func on_ability(id: int, ability: int, target: Vector2, via_voice: bool) -> void:
-	var slot := _slot_of(id)
-	if slot == -1 or not Cfg.ABILITIES.has(ability) or not _valid_vec(target):
+	if _valid_vec(target):
+		_cast_ability(_slot_of(id), ability, func(_s: Soldier) -> Vector2: return target, via_voice)
+
+
+## Voice casts: every caster aims from its own position, along the world
+## direction `dir` or, if it is zero, the way that caster is facing.
+func on_ability_dir(id: int, ability: int, dir: Vector2) -> void:
+	if not is_finite(dir.x) or not is_finite(dir.y):
+		return
+	_cast_ability(_slot_of(id), ability, func(s: Soldier) -> Vector2:
+		var d := dir.normalized() if dir.length() > 0.01 else Vector2.from_angle(s.facing)
+		return s.pos + d * Cfg.VOICE_CAST_DISTANCE, true)
+
+
+## Every living squad member with the ability equipped and enough MP casts it.
+## target_of(soldier) gives each caster's aim point (only Fireball aims).
+func _cast_ability(slot: int, ability: int, target_of: Callable, via_voice: bool) -> void:
+	if slot == -1 or not Cfg.ABILITIES.has(ability):
 		return
 	var def: Dictionary = Cfg.ABILITIES[ability]
 	if state != Cfg.State.PLAYING:
@@ -363,7 +379,7 @@ func on_ability(id: int, ability: int, target: Vector2, via_voice: bool) -> void
 					_start_dash(s, Vector2.from_angle(s.facing), float(def["dash_distance"]), float(def["dash_duration"]), false)
 		Cfg.Ability.FIREBALL:
 			for s: Soldier in casters:
-				var center := _ability_target(s, target, float(def["cast_range"]))
+				var center := _ability_target(s, target_of.call(s), float(def["cast_range"]))
 				_cast_fireball(s, center, def)
 		Cfg.Ability.INVISIBLE:
 			for s: Soldier in casters:

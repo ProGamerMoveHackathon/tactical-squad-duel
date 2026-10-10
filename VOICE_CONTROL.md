@@ -67,7 +67,9 @@ Specifies which squad member executes the command. If omitted, the command defau
 | `Squad`, `Team`, `Everyone`, `All`, `All units` | **Entire Squad** | Directs all living squad members simultaneously. |
 | *(nobody specified)* | **Selected Soldier** | Reuses the active selection or the soldier specified earlier in the phrase. |
 
-> **Selection Note**: Naming an individual soldier automatically **selects** them, ensuring subsequent follow-ups (such as aiming or casting) originate from them. Squad commands do not change the active selection.
+> **Selection Note**: Naming an individual soldier automatically **selects** them (if alive) so follow-up commands target them. If that soldier is down, the game warns you and cancels the order. Squad commands do not change the active selection.
+>
+> **Spells are squad-wide**: Every living soldier that has the requested ability equipped and enough MP casts it at the same time. Spoken spell slots (e.g. `"Charlie spell two"`) resolve the spell from that soldier's equipped loadout.
 
 ---
 
@@ -98,9 +100,9 @@ Combine multiple tactical commands into a single breath using `and`, `then`, or 
 | **Distance Modifiers** | `"... a bit"`, `"step back"`, `"... slightly"` · `"... all the way"`, `"... far"` | Short step (~3 tiles / 96px) · Maximum step until wall contact (~2000px). |
 | **Halt / Stop** | `"Stop"`, `"Halt"`, `"Hold"`, `"Alpha hold position"`, `"Squad freeze"` | Immediately cancels paths and stops all movement. |
 | **Aim / Watch Angle** | `"Watch left"`, `"Bravo face up"`, `"Cover right"`, `"Squad look down"` | Locks firing cone towards that direction. Retains facing while moving. |
-| **Cast Fireball** | `"Fireball"`, `"Fireball right"`, `"Charlie fireball left"`, `"Cast fireball up"` | Blasts in the target direction or 160px ahead (clamped to 320px). Walls block; friendly fire enabled. |
-| **Cast Abilities by Name** | `"Fog"`, `"Scan"`, `"Rush"`, `"Outrage"`, `"Flash"`, `"Break magic"`, `"Invisible"` | Casts the equipped ability across all eligible living casters (respecting MP and cooldowns). |
-| **Cast Abilities by Slot** | `"Spell one"`, `"Ability two"`, `"Slot three"`, `"Cast E"`, `"Cast W"`, `"Third spell"` | Casts the ability mapped to slot **W / E / R** of the named or selected caster. |
+| **Cast Fireball** | `"Fireball"`, `"Fireball right"`, `"Cast fireball up"` | Every ready Fireball caster blasts 180px from itself, in the spoken screen direction or straight ahead (clamped to 320px). Walls block; friendly fire enabled. |
+| **Cast Abilities by Name** | `"Fog"`, `"Scan"`, `"Rush"`, `"Outrage"`, `"Flash"`, `"Break magic"`, `"Invisible"` | Every living soldier with the ability equipped and enough MP casts it at once (one shared cooldown). |
+| **Cast Abilities by Slot** | `"Spell one"`, `"Ability two"`, `"Slot three"`, `"Cast E"`, `"Cast W"`, `"Third spell"` | Looks up the spell in slot **W / E / R** of the named or selected soldier, then casts it squad-wide like the name. |
 | **Targeted Spell Slots** | `"Spell two right"`, `"Bravo second spell left"`, `"Cast E up"` | Targets and casts the slotted spell towards that direction. |
 | **Match Flow** | `"Deploy"`, `"Join game"`, `"Rematch"`, `"Play again"`, `"One more"` | Deploys into the lobby or votes for a rematch post-game. |
 
@@ -207,7 +209,7 @@ Press `F12` or `Cmd+Option+I` to view the browser console. The built-in `[TSD Vo
   - JavaScript Web Speech bridge (`JS_SETUP`) with localStorage tab mutex and visibility awareness.
   - Dynamic result queueing, interim stability timer (`INTERIM_STABLE_S = 0.4`), and grammar parser (`parse_utterance`, `parse_voice`).
 - [`scripts/client/client_game.gd`](file:///Users/cyrill/hackathon-game/scripts/client/client_game.gd):
-  - `_on_voice_command`: Maps parsed voice payloads into game server RPCs (`c_unit_move`, `c_unit_face`, `c_unit_stop`, `c_ability`).
+  - `_on_voice_command`: Maps parsed voice payloads into game server RPCs (`c_unit_move`, `c_unit_face`, `c_unit_stop`, `c_ability_dir`). Voice spells use `c_ability_dir`, so each caster aims from its own position.
   - Handles squad formation spreading and queued path generation.
 
 ### Running Headless Parser Tests

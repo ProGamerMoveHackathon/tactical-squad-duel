@@ -9,7 +9,6 @@ extends Node
 ## command fires at most once per result.
 
 const Cfg = preload("res://scripts/config.gd")
-const MapData = preload("res://scripts/map_data.gd")
 
 signal command_spoken(cmd: Dictionary)
 signal status_changed(status: String)
@@ -396,9 +395,10 @@ static func is_complete(cmd: Dictionary) -> bool:
 static func command_signature(cmd: Dictionary) -> String:
 	if cmd.get("type") == CmdType.ABILITY:
 		return "ability:%d" % cmd["ability"]  # cooldowns are per team: once per utterance
+	var step: int = cmd.get("step", 0)
 	if cmd.get("type") == CmdType.STEER:
-		return "steer:%d:%d:%d:%d:%s" % [cmd["subject"], cmd["move"], cmd["turn"], cmd["tiles"], cmd["dist"]]
-	return "%d:%d:%s:%s" % [cmd.get("type", 0), cmd.get("subject", -2), str(cmd.get("param", "")), str(cmd.get("dist", ""))]
+		return "steer:%d:%d:%d:%d:%s:%d" % [cmd["subject"], cmd["move"], cmd["turn"], cmd["tiles"], cmd["dist"], step]
+	return "%d:%d:%s:%s:%d" % [cmd.get("type", 0), cmd.get("subject", -2), str(cmd.get("param", "")), str(cmd.get("dist", "")), step]
 
 
 static func direction_label(dir: Vector2) -> String:
@@ -426,7 +426,8 @@ static func format_action_tag(cmd: Dictionary) -> String:
 		CmdType.HALT:
 			return pre + "STOP"
 		CmdType.ABILITY:
-			var tag: String = pre + (str(Cfg.ABILITIES[cmd["ability"]]["name"]).to_upper() if cmd["ability"] >= 0 \
+			# Cast by every ready squad member, whoever was named.
+			var tag: String = "SQUAD " + (str(Cfg.ABILITIES[cmd["ability"]]["name"]).to_upper() if cmd["ability"] >= 0 \
 				else "SPELL " + Cfg.ABILITY_SLOT_KEYS[cmd["slot"]])
 			if cmd.get("dir", Vector2.ZERO) != Vector2.ZERO:
 				tag += " " + direction_label(cmd["dir"])
@@ -511,16 +512,15 @@ static func _cut(text: String, hit: Array) -> String:
 	return text.substr(0, hit[1]) + text.substr(hit[1] + hit[2].length() + 1)
 
 
-## Lower-case, letters/digits only, padded with spaces: " alpha go to kitchen ".
+## Lower-case, letters/digits only, padded with spaces.
 static func normalize(raw: String) -> String:
 	var out := ""
 	for c in raw.to_lower():
 		out += c if (c >= "a" and c <= "z") or (c >= "0" and c <= "9") else " "
 	var words := out.split(" ", false)
-	for i in range(1, words.size()):
-		if words[i] in ["two", "2", "too"] and not words[i - 1] in ["select", "to", "unit", "soldier", "number",
-				"forward", "forwards", "ahead", "back", "backward", "backwards", "left", "right"]:
-			words[i] = "to"
+	for i in words.size():
+		if words[i] == "too":
+			words[i] = "two"
 	var text := " " + " ".join(words) + " "
 	return text.replace(" all right ", " alright ")
 
@@ -572,6 +572,7 @@ static func parse_utterance(raw: String) -> Array:
 	var out := []
 	var subject := -2
 	var moved := []
+	var steered := []
 	for seg in _split_segments(text):
 		var cmd := _parse_segment(seg, subject)
 		if cmd["type"] == CmdType.NONE:
@@ -580,8 +581,12 @@ static func parse_utterance(raw: String) -> Array:
 		cmd["text"] = raw
 		# The second move for the same soldier starts where the first ends.
 		if cmd["type"] == CmdType.MOVE_DIR:
-			cmd["queue"] = subject in moved
+			cmd["step"] = moved.count(subject)
+			cmd["queue"] = cmd["step"] > 0
 			moved.append(subject)
+		elif cmd["type"] == CmdType.STEER:
+			cmd["step"] = steered.count(subject)
+			steered.append(subject)
 		out.append(cmd)
 	return out
 
@@ -704,11 +709,11 @@ static func _parse_steer(text: String, subject: int, dist: String) -> Dictionary
 		move = -1
 	elif not _find(text, "steer_forward").is_empty():
 		move = 1
+	var go := not _find(text, "steer_go").is_empty()
+	if move == 0 and go and ((turn != 0.0 and turn != 180.0) or _number(text) > 0 or dist != ""):
+		move = 1
 	if turn == 0.0 and move == 0:
 		return {"type": CmdType.NONE}
-	var go := not _find(text, "steer_go").is_empty()
-	if move == 0 and go and turn != 0.0 and turn != 180.0:
-		move = 1  # "go left": turn, then walk
 	var n := _number(text)
 	var exact := turn == 180.0
 	var tiles := 0

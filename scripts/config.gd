@@ -72,6 +72,8 @@ const VOICE_PHRASES := {
 	Ability.FIREBALL: ["fireball", "fire ball", "fireballs", "fire bowl", "cast fireball"],
 	Ability.INVISIBLE: ["invisible", "invisibility", "vanish", "cloak", "stealth"],
 }
+## How far ahead of each caster a voice-cast Fireball is aimed (clamped to cast_range).
+const VOICE_CAST_DISTANCE := 180.0
 ## Equipped spell slots in W / E / R order: noun + number / key ("spell two",
 ## "cast E") or ordinal before or after the noun ("second spell", "spell third").
 const VOICE_SPELL_NOUNS := ["spell", "ability", "skill", "slot", "cast", "use"]

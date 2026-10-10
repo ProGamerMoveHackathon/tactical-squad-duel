@@ -106,12 +106,18 @@ func _init() -> void:
 	var chain3: Array = Voice.parse_utterance("alpha move south then go up a bit")
 	chain_ok = chain_ok and chain3.size() == 2 and not chain3[0]["queue"] and chain3[1]["queue"] \
 		and chain3[1]["dist"] == "short"
+	var chain4: Array = Voice.parse_utterance("alpha move up then move up")
+	chain_ok = chain_ok and chain4.size() == 2 and not chain4[0]["queue"] and chain4[1]["queue"] \
+		and chain4[0]["step"] == 0 and chain4[1]["step"] == 1
+	var sig0: String = Voice.command_signature(chain4[0])
+	var sig1: String = Voice.command_signature(chain4[1])
+	chain_ok = chain_ok and sig0 != sig1
 	if chain_ok:
 		passed += 1
 		print("  [PASS] chained orders")
 	else:
 		failed += 1
-		print("  [FAIL] chained orders: ", chain, " / ", chain2)
+		print("  [FAIL] chained orders: ", chain, " / ", chain2, " / ", chain4)
 
 	# Steering: [input, subject, move, turn, tiles, dist]. move 1 = forward, -1 = back; turn in degrees (+ = right).
 	var steer_cases := [
@@ -137,6 +143,12 @@ func _init() -> void:
 		["delta about face", 3, 0, 180.0, 0, ""],
 		["keep going", -2, 1, 0.0, 0, ""],
 		["alpha turn right a hundred", 0, 0, 100.0, 0, ""],
+		["advance two tiles", -2, 1, 0.0, 2, ""],
+		["advance too tiles", -2, 1, 0.0, 2, ""],
+		["go two tiles", -2, 1, 0.0, 2, ""],
+		["push two tiles", -2, 1, 0.0, 2, ""],
+		["move two tiles", -2, 1, 0.0, 2, ""],
+		["alpha advance two tiles", 0, 1, 0.0, 2, ""],
 	]
 	for c in steer_cases:
 		var res: Dictionary = Voice.parse_voice(c[0])
@@ -211,12 +223,15 @@ func _init() -> void:
 	voice.command_spoken.connect(func(cmd): spoken.append(cmd))
 	voice.inject("charlie spell three")
 	voice.inject("alpha spell one")
+	voice.inject("bravo move up then move up")
 	voice._evaluate_results()
-	if spoken.size() == 1 and spoken[0]["ability"] == Cfg.Ability.FIREBALL \
-			and voice.history[0]["tags"] == ["CHARLIE FIREBALL"] and voice.history.size() == 2 \
+	if spoken.size() == 3 and spoken[0]["ability"] == Cfg.Ability.FIREBALL \
+			and spoken[1]["type"] == T.MOVE_DIR and spoken[2]["type"] == T.MOVE_DIR \
+			and not spoken[1]["queue"] and spoken[2]["queue"] \
+			and voice.history[0]["tags"] == ["SQUAD FIREBALL"] and voice.history.size() == 3 \
 			and voice.history[1]["tags"].is_empty():
 		passed += 1
-		print("  [PASS] spell slot resolved from loadout")
+		print("  [PASS] spell slot resolved from loadout and chained duplicate moves emitted")
 	else:
 		failed += 1
 		print("  [FAIL] spell slot resolved from loadout: ", spoken, " / ", voice.history)

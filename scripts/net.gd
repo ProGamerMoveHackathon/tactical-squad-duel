@@ -112,6 +112,13 @@ func c_ability(ability: int, target: Vector2, via_voice: bool) -> void:
 		server.on_ability(multiplayer.get_remote_sender_id(), ability, target, via_voice)
 
 
+## Voice cast: each caster aims along world `dir` from itself (zero = its facing).
+@rpc("any_peer", "call_remote", "reliable")
+func c_ability_dir(ability: int, dir: Vector2) -> void:
+	if server:
+		server.on_ability_dir(multiplayer.get_remote_sender_id(), ability, dir)
+
+
 ## Unit-addressed orders (voice squad commands) that don't change the selection.
 ## queue = append to the current path instead of replacing it.
 @rpc("any_peer", "call_remote", "reliable")
