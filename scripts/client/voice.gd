@@ -37,6 +37,7 @@ const JS_SETUP := """
 (function () {
   if (window.tsdVoice) return;
   var SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  var TAB_ID = Math.random().toString(36).substring(2, 9);
   var v = window.tsdVoice = {
     supported: !!SR,
     active: false,
@@ -45,9 +46,37 @@ const JS_SETUP := """
     status: SR ? 'off' : 'unsupported',
     session: 0
   };
-  var rec = null, want = false, restartTimer = null;
+  var rec = null, want = false, restartTimer = null, abortCount = 0;
   var FATAL = { 'not-allowed': 'mic blocked', 'service-not-allowed': 'mic blocked',
                 'audio-capture': 'no microphone', 'network': 'speech service offline' };
+
+  function tryClaimMic() {
+    try {
+      var holder = localStorage.getItem('tsd_mic_holder');
+      var ts = parseInt(localStorage.getItem('tsd_mic_ts') || '0', 10);
+      var now = Date.now();
+      if (!holder || holder === TAB_ID || (now - ts) > 4000) {
+        localStorage.setItem('tsd_mic_holder', TAB_ID);
+        localStorage.setItem('tsd_mic_ts', String(now));
+        return true;
+      }
+      return false;
+    } catch (e) { return true; }
+  }
+
+  function releaseMic() {
+    try {
+      if (localStorage.getItem('tsd_mic_holder') === TAB_ID) {
+        localStorage.removeItem('tsd_mic_holder');
+      }
+    } catch (e) {}
+  }
+
+  setInterval(function () {
+    if (v.active) {
+      try { localStorage.setItem('tsd_mic_ts', String(Date.now())); } catch (e) {}
+    }
+  }, 1500);
 
   function stopRec() {
     if (!rec) return;
@@ -62,12 +91,17 @@ const JS_SETUP := """
   function scheduleRestart(ms) {
     if (restartTimer) clearTimeout(restartTimer);
     restartTimer = setTimeout(function () {
-      if (want && !v.active) createAndStart();
+      if (want && !v.active && !document.hidden) createAndStart();
     }, ms);
   }
 
   function createAndStart() {
-    if (!SR || !want) return;
+    if (!SR || !want || document.hidden) return;
+    if (!tryClaimMic()) {
+      v.status = 'mic in other tab (click Mic to claim)';
+      scheduleRestart(2000);
+      return;
+    }
     stopRec();
     try {
       rec = new SR();
@@ -77,28 +111,47 @@ const JS_SETUP := """
       rec.lang = 'en-US';
       rec.onstart = function () {
         v.active = true;
+        abortCount = 0;
         v.session++;
         v.status = 'listening';
-        console.log('[TSD Voice] recognition started, session ' + v.session);
+        console.log('[TSD Voice] recognition active in tab ' + TAB_ID + ', session ' + v.session);
       };
       rec.onspeechstart = function () {
         v.speaking = true;
-        console.log('[TSD Voice] audio/speech sound detected!');
+        console.log('[TSD Voice] audio/speech detected!');
       };
       rec.onspeechend = function () {
         v.speaking = false;
-        console.log('[TSD Voice] speech sound paused');
       };
       rec.onerror = function (e) {
+        if (e.error === 'no-speech') return;
+        if (e.error === 'aborted') {
+          abortCount++;
+          console.warn('[TSD Voice] aborted by Chrome (attempt ' + abortCount + ')');
+          if (abortCount >= 3) {
+            want = false;
+            v.active = false;
+            v.status = 'mic busy (another tab/app has lock)';
+            releaseMic();
+            return;
+          }
+          scheduleRestart(1200 * abortCount);
+          return;
+        }
         console.warn('[TSD Voice] event error:', e.error);
-        if (e.error === 'no-speech' || e.error === 'aborted') return;
-        if (FATAL[e.error]) { want = false; v.status = FATAL[e.error]; }
-        else v.status = 'error: ' + e.error;
+        if (FATAL[e.error]) {
+          want = false;
+          v.active = false;
+          v.status = FATAL[e.error];
+          releaseMic();
+        } else {
+          v.status = 'error: ' + e.error;
+        }
       };
       rec.onend = function () {
         v.active = false;
         v.speaking = false;
-        if (want) scheduleRestart(150);
+        if (want && !document.hidden) scheduleRestart(250);
       };
       rec.onresult = function (ev) {
         for (var i = ev.resultIndex; i < ev.results.length; i++) {
@@ -110,13 +163,36 @@ const JS_SETUP := """
       };
       rec.start();
     } catch (e) {
-      if (want) scheduleRestart(500);
+      if (want) scheduleRestart(1000);
     }
   }
 
-  v.start = function () {
+  document.addEventListener('visibilitychange', function () {
+    if (document.hidden) {
+      if (v.active) {
+        console.log('[TSD Voice] tab hidden; releasing microphone');
+        stopRec();
+        releaseMic();
+        v.status = 'paused (background tab)';
+      }
+    } else {
+      if (want) {
+        console.log('[TSD Voice] tab focused; reclaiming microphone');
+        scheduleRestart(250);
+      }
+    }
+  });
+
+  v.start = function (forceClaim) {
     if (!SR) return;
     want = true;
+    abortCount = 0;
+    if (forceClaim) {
+      try {
+        localStorage.setItem('tsd_mic_holder', TAB_ID);
+        localStorage.setItem('tsd_mic_ts', String(Date.now()));
+      } catch (e) {}
+    }
     v.status = 'listening';
     createAndStart();
   };
@@ -126,6 +202,7 @@ const JS_SETUP := """
     v.active = false;
     v.speaking = false;
     v.status = 'off';
+    releaseMic();
     if (restartTimer) clearTimeout(restartTimer);
     stopRec();
   };
@@ -167,11 +244,11 @@ func _ready() -> void:
 		status = "off"
 
 
-func start() -> void:
+func start(force_claim: bool = true) -> void:
 	if not available or enabled:
 		return
 	enabled = true
-	JavaScriptBridge.eval("window.tsdVoice.start()", true)
+	JavaScriptBridge.eval("window.tsdVoice.start(%s)" % ("true" if force_claim else "false"), true)
 	_set_status("listening")
 
 
@@ -189,7 +266,7 @@ func toggle() -> void:
 	if enabled:
 		stop()
 	else:
-		start()
+		start(true)
 
 
 ## Feed text as if it had been spoken (debug hooks / typed commands).
