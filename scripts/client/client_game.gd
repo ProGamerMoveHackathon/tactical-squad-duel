@@ -94,6 +94,9 @@ var pause_settings_panel: VBoxContainer
 var voice: Node
 var sfx: Node
 
+# stupid var to make sound at start only play once
+var intro_sound_played: bool = false
+
 
 func _ready() -> void:
 	cooldowns.resize(Cfg.ABILITY_COUNT)
@@ -246,6 +249,9 @@ func _toggle_voice() -> void:
 
 
 func _build_menu() -> void:
+	sfx.play("menu_music")
+
+
 	menu_layer = CanvasLayer.new()
 	menu_layer.layer = 10
 	add_child(menu_layer)
@@ -288,7 +294,7 @@ func _build_menu() -> void:
 	margin.add_child(box)
 
 	var title := Label.new()
-	title.text = "TACTICAL SQUAD DUEL"
+	title.text = "《Witch's Marionette: The Bloodstained Stage》"
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	title.add_theme_font_size_override("font_size", 38)
 	title.add_theme_color_override("font_color", Color(0.96, 0.99, 1.0))
@@ -982,6 +988,9 @@ func _on_snapshot(d: Dictionary) -> void:
 		hud_layer.visible = not menu_layer.visible
 	if state == Cfg.State.DEPLOYMENT and prev_state != Cfg.State.DEPLOYMENT:
 		_reset_round_visuals()
+
+		sfx.menu_sound_player.stop()
+
 		sfx.play("start", -4.0)
 	if state == Cfg.State.COUNTDOWN and prev_state == Cfg.State.DEPLOYMENT:
 		sfx.play("start", -6.0)
@@ -1168,6 +1177,11 @@ func _process(dt: float) -> void:
 		if state == Cfg.State.DEPLOYMENT:
 			world_light.color = Color(1.0, 0.98, 0.90)
 		elif state == Cfg.State.COUNTDOWN:
+			# # play intro sound and make sure it doesn't play again
+			# if !intro_sound_played:
+			# 	sfx.play("intro_sound")
+			# 	intro_sound_played = true
+
 			var light_level := _countdown_light_level()
 			world_light.color = Color(light_level, light_level * 0.96, light_level * 0.82)
 		else:
@@ -1178,7 +1192,16 @@ func _process(dt: float) -> void:
 		if _face_send_t <= 0.0:
 			_face_send_t = 0.05
 			Net.c_face.rpc_id(1, world.get_local_mouse_position())
+	
+	if state == Cfg.State.PLAYING and !sfx.gameplay_sound_player.playing:
+		sfx.play("gameplay_music")
+	
+	if state == Cfg.State.ENDED and !sfx.menu_sound_player.playing:
+		sfx.gameplay_sound_player.stop()
+		sfx.play("menu_music")
 
+	if state == Cfg.State.COUNTDOWN and !sfx.intro_sound_player.playing:
+		sfx.play("intro_sound")
 
 func _countdown_light_level() -> float:
 	var elapsed := clampf(Cfg.COUNTDOWN - countdown, 0.0, Cfg.COUNTDOWN)

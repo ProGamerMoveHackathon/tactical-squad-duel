@@ -7,6 +7,10 @@ var _streams := {}
 var _pool: Array[AudioStreamPlayer] = []
 var _next := 0
 
+var intro_sound_player: AudioStreamPlayer = AudioStreamPlayer.new()
+var menu_sound_player: AudioStreamPlayer = AudioStreamPlayer.new()
+var gameplay_sound_player: AudioStreamPlayer = AudioStreamPlayer.new()
+
 
 func _ready() -> void:
 	_streams["rifle"] = _noise(0.28, 18.0, 0.55, 0.9)
@@ -26,8 +30,23 @@ func _ready() -> void:
 		add_child(p)
 		_pool.append(p)
 
+	intro_sound_player.stream = preload("res://assets/intro_sound.mp3")
+	add_child(intro_sound_player)
+	menu_sound_player.stream = preload("res://assets/menu_music.mp3")
+	add_child(menu_sound_player)
+	gameplay_sound_player.stream = preload("res://assets/gameplay_music.mp3")
+	add_child(gameplay_sound_player)
 
 func play(sound: String, volume_db := 0.0) -> void:
+	match sound:
+		"intro_sound":
+			intro_sound_player.play()
+			return
+		"menu_music":
+			menu_sound_player.play()
+		"gameplay_music":
+			gameplay_sound_player.play()
+
 	if not _streams.has(sound):
 		return
 	var p := _pool[_next]
