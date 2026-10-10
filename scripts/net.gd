@@ -30,6 +30,9 @@ func _ready() -> void:
 
 func host(port: int, cert_path := "", key_path := "") -> Error:
 	peer = WebSocketMultiplayerPeer.new()
+	peer.inbound_buffer_size = 8 * 1024 * 1024
+	peer.outbound_buffer_size = 8 * 1024 * 1024
+	peer.max_queued_packets = 16384
 	var tls: TLSOptions = null
 	if cert_path != "" and key_path != "":
 		var cert := X509Certificate.new()
@@ -48,6 +51,9 @@ func host(port: int, cert_path := "", key_path := "") -> Error:
 func join(url: String) -> Error:
 	leave()
 	peer = WebSocketMultiplayerPeer.new()
+	peer.inbound_buffer_size = 8 * 1024 * 1024
+	peer.outbound_buffer_size = 8 * 1024 * 1024
+	peer.max_queued_packets = 16384
 	var err := peer.create_client(url)
 	if err != OK:
 		return err
@@ -135,7 +141,7 @@ func s_welcome(slot: int) -> void:
 	welcomed.emit(slot)
 
 
-@rpc("authority", "call_remote", "reliable")
+@rpc("authority", "call_remote", "unreliable_ordered")
 func s_snapshot(data: Dictionary) -> void:
 	snapshot_received.emit(data)
 

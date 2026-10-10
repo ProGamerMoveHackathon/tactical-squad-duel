@@ -273,8 +273,29 @@ func _draw_dashed(a: Vector2, b: Vector2, col: Color) -> void:
 		t += 14.0
 
 
-func _draw_callout_badge(p: Vector2, text: String) -> void:
-	var col := Color(0.4, 0.78, 1.0, 0.5)
-	draw_circle(p, 2.5, col)
-	draw_arc(p, 8.0, 0.0, TAU, 16, Color(col.r, col.g, col.b, 0.25), 1.0)
-	_draw_label(p + Vector2(0, -12), "[" + text + "]", col, 10)
+func _draw_callout_badge(p: Vector2, text: String, col: Color) -> void:
+	draw_circle(p, 3.0, Color(col, 0.8))
+	draw_arc(p, 8.0, 0.0, TAU, 20, Color(col, 0.35), 1.0)
+	# Pill drawn counter-rotated so it stays upright for the rotated Red view.
+	draw_set_transform(p, -game.world_rotation)
+	var fs := 10
+	var w := font.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x
+	var r := Rect2(-w * 0.5 - 5.0, -27.0, w + 10.0, 15.0)
+	draw_rect(r, Color(0.02, 0.03, 0.05, 0.62))
+	draw_rect(r, Color(col, 0.45), false, 1.0)
+	draw_string(font, Vector2(-w * 0.5, -16.0), text, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, Color(col, 0.95))
+	draw_set_transform_matrix(Transform2D.IDENTITY)
+
+
+func _draw_voice_pings() -> void:
+	for ping in game.voice_pings:
+		var k: float = 1.0 - ping["t"] / ping["max"]
+		var a: float = 1.0 - k
+		var p: Vector2 = ping["pos"]
+		var col := Color(0.4, 1.0, 0.7)
+		draw_arc(p, 6.0 + 22.0 * k, 0.0, TAU, 28, Color(col, 0.9 * a), 2.5)
+		draw_arc(p, 4.0 + 10.0 * k, 0.0, TAU, 20, Color(col, 0.6 * a), 1.5)
+		draw_circle(p, 3.0, Color(col, a))
+		if ping["label"] != "":
+			_draw_label(p + Vector2(0, 26.0).rotated(-game.world_rotation), ping["label"], Color(col, a), 12)
+

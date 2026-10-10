@@ -71,6 +71,7 @@ var name_edit: LineEdit
 var url_edit: LineEdit
 var connect_btn: Button
 var status_label: Label
+var mic_btn: Button
 var menu_panorama: TextureRect
 var pause_layer: CanvasLayer
 var pause_overlay: ColorRect
@@ -316,12 +317,12 @@ func _build_menu() -> void:
 	box.add_child(status_label)
 	box.add_child(HSeparator.new())
 	var help := Label.new()
-	help.text = "VOICE COMMANDS (Hands-Free):\n" \
-		+ "• Select: \"Alpha\", \"Bravo\", \"Charlie\", \"Delta\", \"Squad\"\n" \
-		+ "• Move: \"Alpha to Mid\", \"Advance to North\", \"Fall back to Base\", \"Stop\"\n" \
-		+ "• Aim: \"Watch North\", \"Watch Mid\", \"Aim South\"\n" \
-		+ "• Abilities: \"Smoke Mid\", \"Scan\", \"Suppress\", \"Squad Rush\"\n" \
-		+ "• Match: \"Deploy\", \"Rematch\"\n\n" \
+	help.text = "VOICE COMMANDS  ([who] [action] [where], mic starts on Deploy, V toggles)\n" \
+		+ "- Who: \"Alpha\" / \"Bravo\" / \"Charlie\" / \"Delta\" / \"Squad\" (or nobody = selected soldier)\n" \
+		+ "- Places: \"Bravo go to kitchen\", \"Squad to mid\", \"Charlie push enemy tables\"\n" \
+		+ "- Directions: \"Go left\", \"Alpha move up\", \"Advance\", \"Fall back a bit\", \"Stop\"\n" \
+		+ "- Aim: \"Watch left\", \"Bravo cover mid\"   - Abilities: \"Smoke kitchen\", \"Scan\", \"Rush\"\n" \
+		+ "- Chain: \"Bravo go to buffet and watch right\"   - Match: \"Rematch\"\n\n" \
 		+ "Fallback: LMB move · RMB face · 1-4 / numpad select · Q E R F abilities · V mic toggle"
 	help.add_theme_font_size_override("font_size", 12)
 	help.add_theme_color_override("font_color", Color(0.82, 0.9, 0.96))
@@ -952,12 +953,7 @@ func _use_ability(ability: int, via_voice: bool) -> void:
 
 
 func _soldier_name(idx: int) -> String:
-	match idx:
-		0: return "ALPHA"
-		1: return "BRAVO"
-		2: return "CHARLIE"
-		3: return "DELTA"
-		_: return "SOLDIER"
+	return Voice.SUBJECT_NAMES.get(idx, "SOLDIER")
 
 
 func _on_voice_command(cmd: Dictionary) -> void:
@@ -1073,11 +1069,11 @@ func _dir_destination(from: Vector2, dir: Vector2, max_d: float) -> Vector2:
 
 
 ## Spread squad members around a destination: one on the spot, two slightly
-## behind on either side (from this player's point of view).
+## behind on either side and one further back (from this player's point of view).
 func _formation(target: Vector2, count: int) -> Array:
 	var fwd := _world_dir(Vector2.RIGHT)
 	var side := fwd.orthogonal()
-	var offsets := [Vector2.ZERO, side * 28.0 - fwd * 16.0, -side * 28.0 - fwd * 16.0]
+	var offsets := [Vector2.ZERO, side * 28.0 - fwd * 16.0, -side * 28.0 - fwd * 16.0, -fwd * 36.0]
 	var out := []
 	for k in count:
 		var p: Vector2 = target + offsets[k % offsets.size()]

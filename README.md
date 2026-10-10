@@ -78,7 +78,7 @@ If you don't have Godot installed on your machine:
 
 | Action | Mouse / Keyboard | Spoken Voice Command | Description |
 |---|---|---|---|
-| **Select Soldier** | `1`, `2`, `3`, `Tab`, or Click soldier | *"Alpha"*, *"Bravo"*, *"Charlie"*, *"Next"* | Directs active squad member (1=Rifle, 2=SMG, 3=Shotgun). |
+| **Select Soldier** | `1`, `2`, `3`, `4` (top row or numpad), `Tab`, or Click soldier | *"Alpha"*, *"Bravo"*, *"Charlie"*, *"Delta"*, *"Next"* | Directs active squad member (1=Arc Bolt, 2=Volley, 3=Prism, 4=Arc Bolt). |
 | **Move to Callout** | **Left Click** | *"Bravo go to kitchen"*, *"Mid"*, *"Charlie push enemy tables"* | A* path to a named point (labelled badges on the map). |
 | **Squad Move** | — | *"Squad to mid"*, *"Everyone fall back to base"* | Entire squad moves in a small formation. |
 | **Move in Direction** | — | *"Go left"*, *"Alpha move up"*, *"Advance"*, *"Fall back a bit"* | Walks that way (screen-relative) until a wall. |

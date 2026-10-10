@@ -233,24 +233,19 @@ func _draw() -> void:
 		else:
 			_text(Vector2(x + 8, top + 84), "%.1fs" % cd, 12, Color(0.9, 0.6, 0.4))
 
-	# Voice + enemy status
-	var vx := 978.0
-	var vstatus: String = game.voice.status
-	var listening: bool = game.voice.enabled and vstatus == "listening"
-	var dot_center := Vector2(vx + 10, top + 24)
-	if listening:
-		var pulse := 1.0 + 0.35 * sin(game.time * 8.0)
-		draw_circle(dot_center, 6.0, Color(0.2, 1.0, 0.4))
-		draw_arc(dot_center, 9.0 * pulse, 0.0, TAU, 16, Color(0.2, 1.0, 0.4, 0.4), 1.5)
-	else:
-		draw_circle(dot_center, 6.0, Color(1.0, 0.7, 0.2) if game.voice.enabled else Color(0.4, 0.4, 0.4))
-	_text(Vector2(vx + 22, top + 29), "Voice [V]: " + vstatus, 12, Color(0.85, 0.85, 0.85), HORIZONTAL_ALIGNMENT_LEFT, 205)
-	if game.voice.last_heard != "":
-		_text(Vector2(vx + 22, top + 49), "heard: \"%s\"" % game.voice.last_heard, 11, Color(0.6, 0.8, 1.0), HORIZONTAL_ALIGNMENT_LEFT, 205)
-	_text(Vector2(vx + 4, top + 84), "Enemy squad:", 11, Color(0.7, 0.7, 0.7))
+	# ---- Bottom right card: mic state (button is a real Button) + enemies --
+	var voice = game.voice
+	var vx := 1004.0
+	var box_r := Rect2(vx, top + 7, vw - vx - 8.0, 50)
+	var listening: bool = voice.enabled and voice.status == "listening"
+	draw_rect(box_r, Color(0.13, 0.15, 0.19))
+	draw_rect(box_r, Color(0.3, 1.0, 0.6, 0.7) if listening else Color(0.24, 0.28, 0.32), false, 1.0)
+	_draw_mic_icon(Vector2(vx + 14, top + 21), _mic_color())
+	_text(Vector2(vx + 26, top + 26), _fit(_mic_status_text(), 12, 160), 12, _mic_color())
+	_text(Vector2(vx + 10, top + 49), "Enemies alive", 10, Color(0.6, 0.6, 0.65))
 	for i in Cfg.SQUAD_SIZE:
 		var alive: bool = game.enemy_alive[i] if i < game.enemy_alive.size() else true
-		var c := Vector2(vx + 92 + i * 18, top + 80)
+		var c := Vector2(vx + 86 + i * 14, top + 45)
 		if alive:
 			draw_circle(c, 4.5, en_col)
 		else:
@@ -269,7 +264,7 @@ func _draw() -> void:
 	var them_str: String = them if them != "" else "waiting for opponent..."
 	var tw := font.get_string_size(them_str, HORIZONTAL_ALIGNMENT_LEFT, -1, 14).x
 	_text(Vector2(vw - tw - 8, 16), them_str, 14, en_col)
-	_text_center(vw * 0.5, 16, "Voice: \"Alpha to Mid\" · \"Delta Watch North\" · \"Squad Rush\" · \"Halt\" | Fallback: LMB/RMB · 1-4 · Q E R F · V mic", 11, Color(0.8, 0.82, 0.85), false)
+	_text_center(vw * 0.5, 16, "Voice: \"Bravo go to kitchen\" · \"Squad watch right\" · \"Smoke mid\" · \"Stop\"  |  Keys: LMB/RMB · 1-4 · Q E R F · V mic", 11, Color(0.8, 0.82, 0.85), false)
 
 	# Banners
 	var by := 52.0

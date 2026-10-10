@@ -61,11 +61,19 @@ const VOICE_PHRASES := {
 # longest phrase wins, so "kitchen door" beats "kitchen" and "play again" beats "play".
 
 const VOICE_SUBJECTS := {
-	0: ["alpha", "alfa", "one", "first", "rifle", "sniper"],
-	1: ["bravo", "two", "second", "smg", "gunner"],
-	2: ["charlie", "three", "third", "shotgun", "breacher"],
-	3: ["delta", "four", "fourth", "marksman"],
-	-1: ["squad", "all", "team", "everyone"],
+	0: ["alpha", "alfa", "alpher", "rifle", "sniper"],
+	1: ["bravo", "brava", "bravos", "smg", "s m g", "gunner"],
+	2: ["charlie", "charley", "charly", "shotgun", "shot gun", "breacher"],
+	3: ["delta", "delter", "marksman"],
+	-1: ["squad", "everyone", "everybody", "team", "all units", "all"],
+}
+## Number words only count as a soldier when they open the command ("two, go left")
+## because recognisers constantly write "to" as "two" / "2".
+const VOICE_SUBJECT_NUMBERS := {
+	0: ["one", "1", "first"],
+	1: ["two", "2", "second"],
+	2: ["three", "3", "third"],
+	3: ["four", "4", "fourth"],
 }
 
 ## Named map points. `tile` is in tiles from Blue's point of view; Red gets the
