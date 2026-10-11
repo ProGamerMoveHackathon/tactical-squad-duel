@@ -64,6 +64,7 @@ var _debug_loadout_sent := false
 
 # --- Nodes -----------------------------------------------------------------
 var world: Node2D
+var camera: Camera2D
 var map_view: Node2D
 var entity_view: Node2D
 var fog_vp: SubViewport
@@ -181,7 +182,18 @@ func _build_world() -> void:
 	world.add_child(world_light)
 	map_view = MapView.new()
 	map_view.map = map
+	map_view.game = self
 	world.add_child(map_view)
+	camera = Camera2D.new()
+	camera.name = "ArenaCamera"
+	camera.position = Cfg.WORLD_SIZE * 0.5
+	camera.position_smoothing_enabled = true
+	camera.position_smoothing_speed = 5.5
+	camera.limit_left = 0
+	camera.limit_top = 0
+	camera.limit_right = int(Cfg.WORLD_SIZE.x)
+	camera.limit_bottom = int(Cfg.WORLD_SIZE.y)
+	add_child(camera)
 
 	fog_vp = SubViewport.new()
 	fog_vp.size = Vector2i(Cfg.WORLD_SIZE * 0.5)
@@ -222,14 +234,21 @@ func _build_hud() -> void:
 	hud_layer.add_child(hud)
 	# Block clicks on the bottom bar from reaching the world.
 	var blocker := Control.new()
-	blocker.position = Vector2(0, Cfg.WORLD_SIZE.y)
-	blocker.size = Vector2(Cfg.WORLD_SIZE.x, Hud.BAR_H)
+	blocker.set_anchors_preset(Control.PRESET_BOTTOM_WIDE)
+	blocker.offset_top = -Hud.BAR_H
+	blocker.offset_bottom = 0.0
 	blocker.mouse_filter = Control.MOUSE_FILTER_STOP
 	hud_layer.add_child(blocker)
 	mic_btn = Button.new()
 	mic_btn.focus_mode = Control.FOCUS_NONE
-	mic_btn.position = Vector2(Cfg.WORLD_SIZE.x - 82, Cfg.WORLD_SIZE.y + 10)
-	mic_btn.size = Vector2(72, 22)
+	mic_btn.anchor_left = 1.0
+	mic_btn.anchor_top = 1.0
+	mic_btn.anchor_right = 1.0
+	mic_btn.anchor_bottom = 1.0
+	mic_btn.offset_left = -82.0
+	mic_btn.offset_top = -Hud.BAR_H + 10.0
+	mic_btn.offset_right = -10.0
+	mic_btn.offset_bottom = -Hud.BAR_H + 32.0
 	mic_btn.add_theme_font_size_override("font_size", 11)
 	mic_btn.pressed.connect(_toggle_voice)
 	hud_layer.add_child(mic_btn)
@@ -955,6 +974,7 @@ func _reset_round_visuals() -> void:
 func _on_snapshot(d: Dictionary) -> void:
 	var prev_state := state
 	state = d["st"]
+	map.set_doors_closed(state != Cfg.State.DEPLOYMENT)
 	loadout_ready = d.get("rd", [false, false])
 	if state == Cfg.State.LOADOUT:
 		if prev_state != Cfg.State.LOADOUT or (slot >= 0 and loadout_ready[slot]):
@@ -1142,6 +1162,11 @@ func _process(dt: float) -> void:
 	for o in own:
 		o["disp"] = o["disp"].lerp(o["pos"], k)
 		o["disp_facing"] = lerp_angle(o["disp_facing"], o["facing"], k)
+	if camera != null and slot >= 0 and selected >= 0 and selected < own.size() and own[selected]["init"]:
+		var focus: Vector2 = own[selected]["disp"]
+		if slot == 1:
+			focus = Cfg.WORLD_SIZE - focus
+		camera.position = focus
 	for idx in enemies:
 		var e: Dictionary = enemies[idx]
 		e["disp"] = e["disp"].lerp(e["pos"], k)

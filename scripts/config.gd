@@ -7,8 +7,8 @@ const MAX_PLAYERS := 2
 const SQUAD_SIZE := 4
 
 const TILE := 32
-const MAP_W := 40
-const MAP_H := 22
+const MAP_W := 80
+const MAP_H := 71
 const WORLD_SIZE := Vector2(MAP_W * TILE, MAP_H * TILE)
 
 # --- Soldiers -------------------------------------------------------------
@@ -96,21 +96,21 @@ const VOICE_SUBJECT_NUMBERS := {
 ## screens. `mirror` callouts also get an "enemy <name>" twin on the far half.
 ## The label is drawn on the map and is exactly what the player should say.
 const CALLOUTS := {
-	"base": {"label": "BASE", "tile": Vector2(3.5, 11.0), "mirror": true,
+	"base": {"label": "BASE", "tile": Vector2(5.0, 39.0), "mirror": true,
 		"words": ["base", "bass", "home", "spawn", "entrance", "zugang"]},
-	"kitchen": {"label": "KITCHEN", "tile": Vector2(9.5, 5.5), "mirror": true,
+	"kitchen": {"label": "KITCHEN", "tile": Vector2(11.0, 32.0), "mirror": true,
 		"words": ["kitchen", "kitchen door", "prep", "choke"]},
-	"buffet": {"label": "BUFFET", "tile": Vector2(9.5, 9.5), "mirror": true,
+	"buffet": {"label": "BUFFET", "tile": Vector2(12.0, 24.0), "mirror": true,
 		"words": ["buffet", "buffets", "grill", "trays", "tray", "yard"]},
-	"cashier": {"label": "CASHIER", "tile": Vector2(14.0, 12.5), "mirror": true,
+	"cashier": {"label": "CASHIER", "tile": Vector2(35.0, 32.0), "mirror": true,
 		"words": ["cashier", "cashiers", "checkout", "register", "kasse", "kassa", "flank"]},
-	"tables": {"label": "TABLES", "tile": Vector2(9.5, 16.5), "mirror": true,
+	"tables": {"label": "TABLES", "tile": Vector2(15.0, 35.0), "mirror": true,
 		"words": ["tables", "table", "dining", "dining hall"]},
-	"mid": {"label": "MID", "tile": Vector2(20.0, 11.0), "mirror": false,
+	"mid": {"label": "MID", "tile": Vector2(38.0, 22.0), "mirror": false,
 		"words": ["mid", "middle", "center", "centre", "salad", "salad bar"]},
-	"top_lane": {"label": "TOP LANE", "tile": Vector2(20.0, 1.5), "mirror": false,
+	"top_lane": {"label": "TOP LANE", "tile": Vector2(38.0, 9.0), "mirror": false,
 		"words": ["top lane", "toplane", "upper lane", "corridor", "hallway"]},
-	"bottom_lane": {"label": "BOTTOM LANE", "tile": Vector2(20.0, 19.5), "mirror": false,
+	"bottom_lane": {"label": "BOTTOM LANE", "tile": Vector2(38.0, 38.0), "mirror": false,
 		"words": ["bottom lane", "lower lane", "terrace", "window", "windows"]},
 }
 ## "enemy kitchen", "their tables", ... address the mirrored twin of a callout.
@@ -154,7 +154,7 @@ const SCAN_MOVE_MEMORY := 1.5
 
 # --- Match ----------------------------------------------------------------
 const COUNTDOWN := 3.0
-const DEPLOYMENT_DURATION := 2.4
+const DEPLOYMENT_DURATION := 5.0
 
 enum State { WAITING, LOADOUT, DEPLOYMENT, COUNTDOWN, PLAYING, ENDED }
 

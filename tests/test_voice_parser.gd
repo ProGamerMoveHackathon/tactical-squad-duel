@@ -149,7 +149,7 @@ func _init() -> void:
 			if p == Vector2.ZERO or map.is_wall_at(p):
 				floor_ok = false
 				print("  callout %s (team %d) is not on open floor: %s" % [id, team, p])
-		if map.callout_position(id, 0) != Cfg.WORLD_SIZE - map.callout_position(id, 1):
+		if map.callout_position(id, 0) != MapData.MATCH_SIZE - map.callout_position(id, 1):
 			floor_ok = false
 	if floor_ok:
 		passed += 1
