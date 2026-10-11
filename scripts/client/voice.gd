@@ -41,21 +41,21 @@ const JS_SETUP := """
     active: false,
     speaking: false,
     queue: [],
-    status: SR ? 'off' : 'unsupported',
+	status: SR ? 'off' : 'unsupported',
     session: 0
   };
   var rec = null, want = false, restartTimer = null, abortCount = 0;
   var FATAL = { 'not-allowed': 'mic blocked', 'service-not-allowed': 'mic blocked',
-                'audio-capture': 'no microphone', 'network': 'speech service offline' };
+				'audio-capture': 'no microphone', 'network': 'speech service offline' };
 
   function tryClaimMic() {
     try {
-      var holder = localStorage.getItem('tsd_mic_holder');
-      var ts = parseInt(localStorage.getItem('tsd_mic_ts') || '0', 10);
+	  var holder = localStorage.getItem('tsd_mic_holder');
+	  var ts = parseInt(localStorage.getItem('tsd_mic_ts') || '0', 10);
       var now = Date.now();
       if (!holder || holder === TAB_ID || (now - ts) > 4000) {
-        localStorage.setItem('tsd_mic_holder', TAB_ID);
-        localStorage.setItem('tsd_mic_ts', String(now));
+		localStorage.setItem('tsd_mic_holder', TAB_ID);
+		localStorage.setItem('tsd_mic_ts', String(now));
         return true;
       }
       return false;
@@ -64,15 +64,15 @@ const JS_SETUP := """
 
   function releaseMic() {
     try {
-      if (localStorage.getItem('tsd_mic_holder') === TAB_ID) {
-        localStorage.removeItem('tsd_mic_holder');
+	  if (localStorage.getItem('tsd_mic_holder') === TAB_ID) {
+		localStorage.removeItem('tsd_mic_holder');
       }
     } catch (e) {}
   }
 
   setInterval(function () {
     if (v.active) {
-      try { localStorage.setItem('tsd_mic_ts', String(Date.now())); } catch (e) {}
+	  try { localStorage.setItem('tsd_mic_ts', String(Date.now())); } catch (e) {}
     }
   }, 1500);
 
@@ -96,7 +96,7 @@ const JS_SETUP := """
   function createAndStart() {
     if (!SR || !want || document.hidden) return;
     if (!tryClaimMic()) {
-      v.status = 'mic in other tab (click Mic to claim)';
+	  v.status = 'mic in other tab (click Mic to claim)';
       scheduleRestart(2000);
       return;
     }
@@ -106,44 +106,44 @@ const JS_SETUP := """
       rec.continuous = true;
       rec.interimResults = true;
       rec.maxAlternatives = 3;
-      rec.lang = 'en-US';
+	  rec.lang = 'en-US';
       rec.onstart = function () {
         v.active = true;
         abortCount = 0;
         v.session++;
-        v.status = 'listening';
-        console.log('[TSD Voice] recognition active in tab ' + TAB_ID + ', session ' + v.session);
+		v.status = 'listening';
+		console.log('[TSD Voice] recognition active in tab ' + TAB_ID + ', session ' + v.session);
       };
       rec.onspeechstart = function () {
         v.speaking = true;
-        console.log('[TSD Voice] audio/speech detected!');
+		console.log('[TSD Voice] audio/speech detected!');
       };
       rec.onspeechend = function () {
         v.speaking = false;
       };
       rec.onerror = function (e) {
-        if (e.error === 'no-speech') return;
-        if (e.error === 'aborted') {
+		if (e.error === 'no-speech') return;
+		if (e.error === 'aborted') {
           abortCount++;
-          console.warn('[TSD Voice] aborted by Chrome (attempt ' + abortCount + ')');
+		  console.warn('[TSD Voice] aborted by Chrome (attempt ' + abortCount + ')');
           if (abortCount >= 3) {
             want = false;
             v.active = false;
-            v.status = 'mic busy (another tab/app has lock)';
+			v.status = 'mic busy (another tab/app has lock)';
             releaseMic();
             return;
           }
           scheduleRestart(1200 * abortCount);
           return;
         }
-        console.warn('[TSD Voice] event error:', e.error);
+		console.warn('[TSD Voice] event error:', e.error);
         if (FATAL[e.error]) {
           want = false;
           v.active = false;
           v.status = FATAL[e.error];
           releaseMic();
         } else {
-          v.status = 'error: ' + e.error;
+		  v.status = 'error: ' + e.error;
         }
       };
       rec.onend = function () {
@@ -155,8 +155,8 @@ const JS_SETUP := """
         for (var i = ev.resultIndex; i < ev.results.length; i++) {
           var r = ev.results[i], alts = [];
           for (var j = 0; j < r.length; j++) alts.push(r[j].transcript);
-          console.log('[TSD Voice] heard:', alts[0], '(final=' + r.isFinal + ')');
-          v.queue.push({ key: v.session + ':' + i, alts: alts, final: r.isFinal });
+		  console.log('[TSD Voice] heard:', alts[0], '(final=' + r.isFinal + ')');
+		  v.queue.push({ key: v.session + ':' + i, alts: alts, final: r.isFinal });
         }
       };
       rec.start();
@@ -168,14 +168,14 @@ const JS_SETUP := """
   document.addEventListener('visibilitychange', function () {
     if (document.hidden) {
       if (v.active) {
-        console.log('[TSD Voice] tab hidden; releasing microphone');
+		console.log('[TSD Voice] tab hidden; releasing microphone');
         stopRec();
         releaseMic();
-        v.status = 'paused (background tab)';
+		v.status = 'paused (background tab)';
       }
     } else {
       if (want) {
-        console.log('[TSD Voice] tab focused; reclaiming microphone');
+		console.log('[TSD Voice] tab focused; reclaiming microphone');
         scheduleRestart(250);
       }
     }
@@ -187,11 +187,11 @@ const JS_SETUP := """
     abortCount = 0;
     if (forceClaim) {
       try {
-        localStorage.setItem('tsd_mic_holder', TAB_ID);
-        localStorage.setItem('tsd_mic_ts', String(Date.now()));
+		localStorage.setItem('tsd_mic_holder', TAB_ID);
+		localStorage.setItem('tsd_mic_ts', String(Date.now()));
       } catch (e) {}
     }
-    v.status = 'listening';
+	v.status = 'listening';
     createAndStart();
   };
 
@@ -199,7 +199,7 @@ const JS_SETUP := """
     want = false;
     v.active = false;
     v.speaking = false;
-    v.status = 'off';
+	v.status = 'off';
     releaseMic();
     if (restartTimer) clearTimeout(restartTimer);
     stopRec();

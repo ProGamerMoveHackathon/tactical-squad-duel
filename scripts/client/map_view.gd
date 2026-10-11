@@ -1,306 +1,462 @@
 extends Node2D
-## Authentic ETH Zürich Polymensa architectural map rendering:
-## - North Zone: Stainless steel kitchen, cold storage, food prep & dishwashing
-## - Center Zone: Free-Flow servery with Warm Buffet, Salad Bar, and Cashier counters
-## - South Zone: Mensa dining hall with oak tables, chairs, Mensa trays & Polyterrasse windows
-## - West/East Lobbies: "Zugang Free Flow" and "Ausgang Free Flow" with team runners
+## Large vector-rendered dining/lecture hall. MapData is the single source of
+## truth for both collision and decoration, so visuals never create phantom walls.
 
 const Cfg = preload("res://scripts/config.gd")
 
-var map  # MapData
+var map
+var game
 var font: Font
 
 
 func _ready() -> void:
 	font = ThemeDB.fallback_font
+	set_process(true)
+
+
+func _process(_dt: float) -> void:
+	if game != null and game.state == Cfg.State.DEPLOYMENT:
+		queue_redraw()
+
+
+func door_open_amount() -> float:
+	if game == null or game.state != Cfg.State.DEPLOYMENT:
+		return 0.0
+	var elapsed: float = Cfg.DEPLOYMENT_DURATION - game.deployment
+	return minf(smoothstep(0.0, 0.55, elapsed), smoothstep(0.0, 0.75, game.deployment))
 
 
 func _draw() -> void:
 	if map == null:
 		return
-	var T := Cfg.TILE
-	var W := Cfg.MAP_W
-	var H := Cfg.MAP_H
+	var t := float(Cfg.TILE)
 
-	# 1. Base floor zones (determined symmetrically by tile zone)
-	for y in H:
-		for x in W:
-			var r := Rect2(x * T, y * T, T, T)
-			var z: int = map.tile_zone(x, y)
-			if z == map.Zone.KITCHEN:
-				# Kitchen & prep area (Commercial non-slip slate/blue tile)
-				var base_col := Color(0.20, 0.23, 0.27)
-				if (x + y) % 2 == 0:
-					base_col = Color(0.22, 0.25, 0.29)
-				draw_rect(r, base_col)
-				# Subtle tile grout
-				draw_rect(r, Color(0.16, 0.18, 0.22, 0.4), false, 1.0)
-			elif z == map.Zone.SERVERY:
-				# Free-Flow Servery & Cashier Zone (Polished light terrazzo)
-				var base_col := Color(0.23, 0.25, 0.27)
-				if (x + y) % 2 == 0:
-					base_col = Color(0.25, 0.27, 0.29)
-				draw_rect(r, base_col)
+	# Warm terrazzo with the restrained palette of the restored small map.
+	for y in Cfg.MAP_H:
+		for x in Cfg.MAP_W:
+			var r := Rect2(x * t, y * t, t, t)
+			if map.solid_kind(x, y) == map.SolidKind.VOID:
+				draw_rect(r, Color("11161c"))
 			else:
-				# Polymensa Dining Hall (Warm oak wood parquet)
-				var base_col := Color(0.27, 0.22, 0.17)
-				if (x + y) % 2 == 0:
-					base_col = Color(0.29, 0.24, 0.18)
-				draw_rect(r, base_col)
-				# Parquet plank lines
-				draw_line(Vector2(x * T, y * T + T * 0.5), Vector2((x + 1) * T, y * T + T * 0.5), Color(0.22, 0.18, 0.14, 0.3), 1.0)
+				draw_rect(r, Color("35312c"))
+				draw_circle(r.position + Vector2(8 + (x * 7 + y * 3) % 18, 7 + (x * 5 + y * 11) % 18), 0.8, Color(0.72, 0.67, 0.58, 0.14))
 
-	# 2. Spawn entrance / exit runners (Lobbies)
-	# West: Zugang Free Flow (Blue team)
-	draw_rect(Rect2(T, 6 * T, 3 * T, 10 * T), Color(Cfg.TEAM_COLORS[0], 0.08))
-	draw_rect(Rect2(T, 6 * T, 3 * T, 10 * T), Color(Cfg.TEAM_COLORS[0], 0.25), false, 1.5)
-	# East: Ausgang Free Flow (Red team)
-	draw_rect(Rect2(Cfg.WORLD_SIZE.x - 4 * T, 6 * T, 3 * T, 10 * T), Color(Cfg.TEAM_COLORS[1], 0.08))
-	draw_rect(Rect2(Cfg.WORLD_SIZE.x - 4 * T, 6 * T, 3 * T, 10 * T), Color(Cfg.TEAM_COLORS[1], 0.25), false, 1.5)
+	_draw_team_entry_glow()
+	_draw_explosion_scorch()
+	_draw_lower_room_breach()
+	_draw_floor_markings()
+	_draw_spilled_glass()
 
-	# 3. Architectural Tray Guide Rails (Metallic rails along buffet counters)
-	draw_line(Vector2(3 * T, 8.5 * T), Vector2(17 * T, 8.5 * T), Color(0.65, 0.70, 0.75, 0.5), 2.0)
-	draw_line(Vector2(3 * T, 8.7 * T), Vector2(17 * T, 8.7 * T), Color(0.65, 0.70, 0.75, 0.3), 1.0)
-	draw_line(Vector2(23 * T, 8.5 * T), Vector2(37 * T, 8.5 * T), Color(0.65, 0.70, 0.75, 0.5), 2.0)
-	draw_line(Vector2(23 * T, 8.7 * T), Vector2(37 * T, 8.7 * T), Color(0.65, 0.70, 0.75, 0.3), 1.0)
+	# Chairs and tabletops are both derived from the same 4/8-seat table record.
+	for table in map.tables:
+		var table_rect: Rect2 = map.table_visual_rect(table)
+		var anchor: Vector2i = table["anchor"]
+		draw_set_transform(table_rect.get_center(), float(table.get("angle", 0.0)), Vector2.ONE)
+		if not bool(table.get("tipped", false)) and not bool(table.get("destroyed", false)):
+			_draw_table_chairs(Rect2(-table_rect.size * 0.5, table_rect.size), table["seats"], anchor.x + anchor.y * 83)
+		draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 
-	# 4. Floor Decals & Blueprint Text
+	for y in Cfg.MAP_H:
+		for x in Cfg.MAP_W:
+			if map.is_wall_tile(x, y) and not map.is_table_tile(x, y) and map.solid_kind(x, y) != map.SolidKind.VOID:
+				draw_rect(Rect2(x * t + 4, y * t + 5, t, t), Color(0, 0, 0, 0.34))
+	for y in Cfg.MAP_H:
+		for x in Cfg.MAP_W:
+			var kind: int = map.solid_kind(x, y)
+			var r := Rect2(x * t, y * t, t, t)
+			match kind:
+				map.SolidKind.WALL:
+					_draw_wall(r, x, y)
+				map.SolidKind.TABLE:
+					pass # joined and rendered once per plan rectangle below
+				map.SolidKind.PLANT:
+					_draw_plant(r, x + y * 17)
+				map.SolidKind.COUNTER:
+					pass # joined and rendered once per service object below
+				map.SolidKind.VOID:
+					pass
+				map.SolidKind.RUBBLE:
+					_draw_rubble(r, x, y)
+	for table in map.tables:
+		var anchor: Vector2i = table["anchor"]
+		var table_rect: Rect2 = map.table_visual_rect(table)
+		draw_set_transform(table_rect.get_center(), float(table.get("angle", 0.0)), Vector2.ONE)
+		_draw_table(Rect2(-table_rect.size * 0.5, table_rect.size), anchor.x, anchor.y, bool(table.get("damaged", false)), bool(table.get("tipped", false)), bool(table.get("destroyed", false)))
+		draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+	for idx in map.counter_rects.size():
+		_draw_counter(map.counter_visual_rect(map.counter_rects[idx]), idx)
+	for fixture in map.service_fixtures:
+		_draw_service_fixture(fixture)
+	_draw_main_room_clutter()
+	_draw_lower_room_clutter()
+
+	_draw_door_frames()
+	_draw_doors(door_open_amount())
+
+
+func _draw_team_entry_glow() -> void:
+	var t := float(Cfg.TILE)
+	draw_rect(Rect2(2 * t, 36 * t, 15 * t, 7 * t), Color(Cfg.TEAM_COLORS[0], 0.055))
+	draw_rect(Rect2(68 * t, 2 * t, 11 * t, 13 * t), Color(Cfg.TEAM_COLORS[1], 0.055))
+
+
+func _draw_floor_markings() -> void:
+	var t := float(Cfg.TILE)
 	if font:
-		# Centre Hall Blueprint Header
-		draw_string(font, Vector2(Cfg.WORLD_SIZE.x * 0.5 - 130, 8.0 * T), "ETH ZÜRICH · POLYMENSA", HORIZONTAL_ALIGNMENT_CENTER, 260, 16, Color(1, 1, 1, 0.12))
-		draw_string(font, Vector2(Cfg.WORLD_SIZE.x * 0.5 - 120, 8.5 * T + 4), "GESCHOSS F · FREIFLÄCHE GASTRONOMIE", HORIZONTAL_ALIGNMENT_CENTER, 240, 10, Color(1, 1, 1, 0.07))
-		draw_string(font, Vector2(Cfg.WORLD_SIZE.x * 0.5 - 120, 13.5 * T), "— POLYTERRASSE MENSA-SAAL —", HORIZONTAL_ALIGNMENT_CENTER, 240, 12, Color(1, 1, 1, 0.10))
-
-		# West Lobby: Zugang
-		draw_string(font, Vector2(1.5 * T, 6.5 * T), "ZUGANG FREE FLOW ↓", HORIZONTAL_ALIGNMENT_LEFT, -1, 11, Color(0.4, 0.75, 1.0, 0.35))
-		draw_string(font, Vector2(1.5 * T, 16.5 * T), "TREPPENHAUS WEST", HORIZONTAL_ALIGNMENT_LEFT, -1, 10, Color(1, 1, 1, 0.15))
-
-		# East Lobby: Ausgang
-		draw_string(font, Vector2(34.5 * T, 6.5 * T), "AUSGANG FREE FLOW ↑", HORIZONTAL_ALIGNMENT_LEFT, -1, 11, Color(1.0, 0.5, 0.4, 0.35))
-		draw_string(font, Vector2(34.5 * T, 16.5 * T), "TREPPENHAUS OST", HORIZONTAL_ALIGNMENT_LEFT, -1, 10, Color(1, 1, 1, 0.15))
-
-		# Stations
-		draw_string(font, Vector2(3.5 * T, 2.5 * T), "KÜCHE / FOOD PREP", HORIZONTAL_ALIGNMENT_LEFT, -1, 10, Color(1, 1, 1, 0.12))
-		draw_string(font, Vector2(4.0 * T, 10.0 * T), "WARMBUFFET", HORIZONTAL_ALIGNMENT_LEFT, -1, 10, Color(1.0, 0.75, 0.3, 0.3))
-		draw_string(font, Vector2(11.0 * T, 10.0 * T), "GRILL", HORIZONTAL_ALIGNMENT_LEFT, -1, 10, Color(1.0, 0.75, 0.3, 0.3))
-		draw_string(font, Vector2(18.0 * T, 10.5 * T), "SALATBAR", HORIZONTAL_ALIGNMENT_LEFT, -1, 9, Color(0.4, 0.9, 0.5, 0.35))
-		draw_string(font, Vector2(13.0 * T, 12.8 * T), "KASSE 1", HORIZONTAL_ALIGNMENT_LEFT, -1, 9, Color(1, 1, 1, 0.2))
-		draw_string(font, Vector2(25.5 * T, 12.8 * T), "KASSE 2", HORIZONTAL_ALIGNMENT_LEFT, -1, 9, Color(1, 1, 1, 0.2))
-
-		# Dining Hall Labels
-		draw_string(font, Vector2(6.0 * T, 16.7 * T), "TISCHE 1-6 (SAAL SÜD)", HORIZONTAL_ALIGNMENT_LEFT, -1, 9, Color(1, 1, 1, 0.12))
-		draw_string(font, Vector2(24.0 * T, 5.7 * T), "TISCHE 7-12 (SAAL NORD)", HORIZONTAL_ALIGNMENT_LEFT, -1, 9, Color(1, 1, 1, 0.12))
-
-	# 5. Panoramic Terrace Cafe Seating (Bistro tables & stools along the windows)
-	for bx in [6, 11, 16]:
-		_draw_terrace_bistro_set(Vector2(bx * T + T * 0.5, 19.5 * T), bx)
-	for bx in [23, 28, 33]:
-		_draw_terrace_bistro_set(Vector2(bx * T + T * 0.5, 1.5 * T), bx + 10)
-
-	# 6. Chairs around Dining Tables (drawn before tabletops so seats tuck under tables)
-	for y in H:
-		for x in W:
-			if map.is_table_tile(x, y):
-				_draw_chairs_for_table_tile(x, y)
-
-	# 7. Wall, Buffet & Table Shadows
-	for y in H:
-		for x in W:
-			if map.is_wall_tile(x, y):
-				draw_rect(Rect2(x * T + 4, y * T + 5, T, T), Color(0, 0, 0, 0.35))
-
-	# 8. Walls, Buffets, Kitchen Counters & Dining Tables
-	for y in H:
-		for x in W:
-			if not map.is_wall_tile(x, y):
-				continue
-			var r := Rect2(x * T, y * T, T, T)
-
-			if y == 0 or y == H - 1 or x == 0 or x == W - 1:
-				# Outer perimeter concrete walls
-				draw_rect(r, Color(0.35, 0.37, 0.40))
-				_draw_bevel(r, Color(0.50, 0.52, 0.56), Color(0.22, 0.23, 0.25))
-
-			elif map.is_table_tile(x, y):
-				# Mensa Dining Tables (Swiss oak, placemats, trays, food, drinks)
-				_draw_dining_table(r, x, y)
-
-			else:
-				var z: int = map.tile_zone(x, y)
-				if z == map.Zone.KITCHEN:
-					# Kitchen counters & stainless equipment
-					draw_rect(r, Color(0.46, 0.50, 0.54))
-					_draw_bevel(r, Color(0.68, 0.72, 0.76), Color(0.28, 0.30, 0.33))
-					# Stainless steel surface detail
-					draw_rect(Rect2(r.position + Vector2(3, 3), Vector2(T - 6, T - 6)), Color(0.42, 0.46, 0.50))
-					draw_line(r.position + Vector2(5, 5), r.position + Vector2(T - 5, 5), Color(0.65, 0.70, 0.75, 0.4), 1.0)
-				else:
-					# Free-Flow Buffet & Salad Bar Islands
-					var is_salad := (x >= 17 and x <= 22)
-					var top_col := Color(0.36, 0.55, 0.42) if is_salad else Color(0.50, 0.42, 0.34)
-					draw_rect(r, Color(0.38, 0.40, 0.44))
-					draw_rect(Rect2(r.position + Vector2(2, 2), Vector2(T - 4, T - 4)), top_col)
-					_draw_bevel(r, Color(0.70, 0.65, 0.55), Color(0.22, 0.20, 0.18))
-					# Warm buffet heat lamp glow
-					if not is_salad:
-						draw_rect(Rect2(r.position + Vector2(4, 4), Vector2(T - 8, 4)), Color(1.0, 0.7, 0.2, 0.4))
-					else:
-						draw_rect(Rect2(r.position + Vector2(4, 4), Vector2(T - 8, T - 8)), Color(0.25, 0.8, 0.4, 0.2))
-
-	# 9. Window Mullions along South and North Facades
-	for x in range(2, W - 2):
-		var wx := x * T
-		var wy := (H - 1) * T
-		draw_rect(Rect2(wx + 2, wy + 2, T - 4, 3), Color(0.35, 0.65, 0.90, 0.7))
-		draw_line(Vector2(wx + T * 0.5, wy), Vector2(wx + T * 0.5, wy + 5), Color(0.7, 0.8, 0.9, 0.8), 1.0)
+		draw_string(font, Vector2(6 * t, 7.2 * t), "B", HORIZONTAL_ALIGNMENT_CENTER, 26 * t, 24, Color(0.84, 0.79, 0.68, 0.12))
+		draw_string(font, Vector2(42 * t, 7.2 * t), "A", HORIZONTAL_ALIGNMENT_CENTER, 26 * t, 24, Color(0.84, 0.79, 0.68, 0.12))
+		draw_string(font, Vector2(2 * t, 42.3 * t), "ENTRANCE 1", HORIZONTAL_ALIGNMENT_CENTER, 13 * t, 12, Color(Cfg.TEAM_COLORS[0], 0.32))
+		draw_string(font, Vector2(68 * t, 3.2 * t), "ENTRANCE 2", HORIZONTAL_ALIGNMENT_CENTER, 10 * t, 12, Color(Cfg.TEAM_COLORS[1], 0.32))
+	_draw_graffiti("A", Vector2(39.0, 10.5) * t, -0.13)
+	_draw_graffiti("B", Vector2(71.0, 35.0) * t, 0.09)
 
 
-func _draw_chairs_for_table_tile(x: int, y: int) -> void:
-	var T := Cfg.TILE
-	# North edge chairs (facing South into table)
-	if not map.is_table_tile(x, y - 1):
-		_draw_chair(Vector2(x * T + 8.0, y * T - 4.0), Vector2(0, 1), x * 7 + y * 3 + 1)
-		_draw_chair(Vector2(x * T + 24.0, y * T - 4.0), Vector2(0, 1), x * 7 + y * 3 + 2)
-
-	# South edge chairs (facing North into table)
-	if not map.is_table_tile(x, y + 1):
-		_draw_chair(Vector2(x * T + 8.0, (y + 1) * T + 4.0), Vector2(0, -1), x * 7 + y * 3 + 3)
-		_draw_chair(Vector2(x * T + 24.0, (y + 1) * T + 4.0), Vector2(0, -1), x * 7 + y * 3 + 4)
-
-	# West edge chair (facing East into table)
-	if not map.is_table_tile(x - 1, y):
-		_draw_chair(Vector2(x * T - 4.0, y * T + 16.0), Vector2(1, 0), x * 7 + y * 3 + 5)
-
-	# East edge chair (facing West into table)
-	if not map.is_table_tile(x + 1, y):
-		_draw_chair(Vector2((x + 1) * T + 4.0, y * T + 16.0), Vector2(-1, 0), x * 7 + y * 3 + 6)
+func _draw_graffiti(letter: String, position: Vector2, angle: float) -> void:
+	if font == null:
+		return
+	draw_set_transform(position, angle, Vector2.ONE)
+	var paint := Color("b52727")
+	draw_string(font, Vector2(-18, 16), letter, HORIZONTAL_ALIGNMENT_CENTER, 36, 38, Color(0.25, 0.02, 0.02, 0.55))
+	draw_string(font, Vector2(-20, 14), letter, HORIZONTAL_ALIGNMENT_CENTER, 40, 38, paint)
+	draw_line(Vector2(-17, 20), Vector2(18, 17), paint, 3.0)
+	for p in [Vector2(-22, -8), Vector2(20, 4), Vector2(13, 25), Vector2(-12, 27)]:
+		draw_circle(p, 2.2, Color(paint, 0.82))
+	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 
 
-func _draw_chair(pos: Vector2, facing_dir: Vector2, seed_val: int) -> void:
-	# Subtle natural jitter (chair slightly angled or pulled out)
-	var jitter_angle := (float((seed_val * 17) % 7) - 3.0) * 0.03
-	var jitter_offset := Vector2(float((seed_val * 13) % 5) - 2.0, float((seed_val * 11) % 5) - 2.0) * 0.35
-	var p := pos + jitter_offset
-	var angle := facing_dir.angle() + jitter_angle
-
-	# Chair contact shadow on floor
-	draw_circle(p + Vector2(1.0, 1.5), 5.5, Color(0, 0, 0, 0.28))
-
-	draw_set_transform(p, angle)
-
-	# 4 tubular steel frame corners
-	draw_circle(Vector2(-4.5, -4.5), 1.0, Color(0.16, 0.16, 0.18))
-	draw_circle(Vector2(-4.5, 4.5), 1.0, Color(0.16, 0.16, 0.18))
-	draw_circle(Vector2(3.5, -4.5), 1.0, Color(0.16, 0.16, 0.18))
-	draw_circle(Vector2(3.5, 4.5), 1.0, Color(0.16, 0.16, 0.18))
-
-	# Molded Swiss canteen seat (beech wood or dark anthracite)
-	var seat_col := Color(0.62, 0.46, 0.30) if seed_val % 2 == 0 else Color(0.56, 0.42, 0.28)
-	draw_rect(Rect2(-4.5, -5.0, 8.5, 10.0), seat_col)
-	draw_rect(Rect2(-4.5, -5.0, 8.5, 10.0), seat_col.lightened(0.18), false, 1.0)
-
-	# Curved ergonomic backrest along rear (-X)
-	draw_line(Vector2(-5.5, -5.5), Vector2(-5.5, 5.5), Color(0.35, 0.24, 0.14), 2.5)
-	draw_line(Vector2(-5.5, -5.0), Vector2(-5.5, 5.0), Color(0.75, 0.58, 0.38), 1.2)
-
-	draw_set_transform_matrix(Transform2D.IDENTITY)
+func _draw_explosion_scorch() -> void:
+	var c := Vector2(19.0, 4.5) * float(Cfg.TILE)
+	draw_circle(c, 106.0, Color(0.05, 0.035, 0.025, 0.46))
+	draw_circle(c, 78.0, Color(0.12, 0.065, 0.025, 0.34))
+	draw_circle(c, 46.0, Color(0.04, 0.025, 0.018, 0.62))
+	for i in 18:
+		var a := i * TAU / 18.0 + 0.17
+		var length := 70.0 + float((i * 29) % 55)
+		draw_line(c + Vector2.from_angle(a) * 38.0, c + Vector2.from_angle(a) * length, Color(0.12, 0.07, 0.035, 0.28), 3.0)
 
 
-func _draw_dining_table(r: Rect2, x: int, y: int) -> void:
-	var T := Cfg.TILE
-
-	# Solid oak base
-	var base_wood := Color(0.50, 0.36, 0.22)
-	draw_rect(r, base_wood)
-
-	# Inset tabletop
-	var top_wood := Color(0.60, 0.44, 0.28)
-	draw_rect(Rect2(r.position + Vector2(2, 2), Vector2(T - 4, T - 4)), top_wood)
-
-	# Wood grain lines across tabletop
-	draw_line(r.position + Vector2(3, 10), r.position + Vector2(T - 3, 10), Color(0.52, 0.38, 0.24, 0.35), 1.0)
-	draw_line(r.position + Vector2(3, 16), r.position + Vector2(T - 3, 16), Color(0.48, 0.34, 0.20, 0.35), 1.0)
-	draw_line(r.position + Vector2(3, 22), r.position + Vector2(T - 3, 22), Color(0.52, 0.38, 0.24, 0.35), 1.0)
-
-	# Outer edge bevel
-	_draw_bevel(r, Color(0.72, 0.56, 0.38), Color(0.32, 0.22, 0.14))
-
-	# Mensa Trays & Dining items
-	var tray_cols := [Color(0.75, 0.24, 0.22), Color(0.24, 0.38, 0.62), Color(0.38, 0.40, 0.42)]
-	var t_seed := (x * 11 + y * 17)
-
-	# Tray 1 (North side of table)
-	var t1_pos := r.position + Vector2(3, 4)
-	var t1_col: Color = tray_cols[t_seed % 3]
-	_draw_mensa_tray(t1_pos, t1_col, t_seed)
-
-	# Tray 2 (South side of table)
-	var t2_pos := r.position + Vector2(15, 17)
-	var t2_col: Color = tray_cols[(t_seed + 1) % 3]
-	_draw_mensa_tray(t2_pos, t2_col, t_seed + 1)
-
-	# Center accents: salt & pepper shakers, table order QR code
-	draw_circle(r.position + Vector2(15.0, 15.0), 1.2, Color(0.95, 0.95, 0.95, 0.9))
-	draw_circle(r.position + Vector2(17.5, 15.0), 1.2, Color(0.18, 0.18, 0.18, 0.9))
-	draw_rect(Rect2(r.position + Vector2(6, 15), Vector2(4, 4)), Color(0.9, 0.9, 0.9, 0.6))
-	draw_rect(Rect2(r.position + Vector2(7, 16), Vector2(2, 2)), Color(0.15, 0.15, 0.15, 0.7))
+func _draw_lower_room_breach() -> void:
+	var t := float(Cfg.TILE)
+	var c := Vector2((map.ROOM_BREACH_LEFT + map.ROOM_BREACH_RIGHT + 1) * 0.5, map.MAIN_BOTTOM + 0.5) * t
+	draw_circle(c, 82.0, Color(0.055, 0.035, 0.025, 0.44))
+	draw_circle(c, 48.0, Color(0.15, 0.075, 0.025, 0.30))
+	for i in 14:
+		var a := i * TAU / 14.0 + 0.11
+		var distance := 34.0 + float((i * 17) % 43)
+		var p := c + Vector2.from_angle(a) * distance
+		var size := Vector2(7 + (i % 3) * 3, 5 + ((i + 1) % 3) * 2)
+		draw_rect(Rect2(p - size * 0.5, size), Color("82705c") if i % 2 == 0 else Color("b09b7d"))
+	# Jagged remnants identify the blast opening without restoring collision.
+	draw_colored_polygon(PackedVector2Array([
+		Vector2(map.ROOM_BREACH_LEFT, map.MAIN_BOTTOM) * t,
+		Vector2(map.ROOM_BREACH_LEFT + 0.7, map.MAIN_BOTTOM + 0.65) * t,
+		Vector2(map.ROOM_BREACH_LEFT + 1.25, map.MAIN_BOTTOM) * t
+	]), Color("8b7c68"))
+	draw_colored_polygon(PackedVector2Array([
+		Vector2(map.ROOM_BREACH_RIGHT + 1.0, map.MAIN_BOTTOM) * t,
+		Vector2(map.ROOM_BREACH_RIGHT + 0.25, map.MAIN_BOTTOM + 0.72) * t,
+		Vector2(map.ROOM_BREACH_RIGHT - 0.3, map.MAIN_BOTTOM) * t
+	]), Color("8b7c68"))
 
 
-func _draw_mensa_tray(pos: Vector2, tray_col: Color, seed_val: int) -> void:
-	# Tray rim & base (13px wide x 10px high)
-	draw_rect(Rect2(pos, Vector2(13, 10)), tray_col)
-	draw_rect(Rect2(pos + Vector2(1, 1), Vector2(11, 8)), tray_col.darkened(0.15))
-	draw_rect(Rect2(pos, Vector2(13, 10)), Color(1, 1, 1, 0.18), false, 1.0)
-
-	# White porcelain plate
-	draw_circle(pos + Vector2(5.5, 5.0), 3.2, Color(0.94, 0.94, 0.92))
-	draw_circle(pos + Vector2(5.5, 5.0), 2.2, Color(0.88, 0.88, 0.86))
-	# Meal accent (pasta/curry/salad)
-	var meal_cols := [Color(0.85, 0.52, 0.22), Color(0.38, 0.75, 0.32), Color(0.82, 0.30, 0.22)]
-	draw_circle(pos + Vector2(5.5, 5.0), 1.4, meal_cols[seed_val % 3])
-
-	# Cutlery (silver fork/knife line)
-	draw_line(pos + Vector2(1.5, 2.0), pos + Vector2(1.5, 8.0), Color(0.85, 0.85, 0.88), 0.8)
-
-	# Drink glass / water cup (translucent glass blue)
-	draw_circle(pos + Vector2(10.5, 3.0), 1.6, Color(0.45, 0.80, 0.95, 0.85))
-
-	# Paper napkin
-	draw_rect(Rect2(pos + Vector2(9.5, 6.0), Vector2(2.5, 2.5)), Color(0.95, 0.95, 0.95, 0.75))
+func _draw_spilled_glass() -> void:
+	var c := Vector2(39.0, 23.0) * float(Cfg.TILE)
+	var spill := PackedVector2Array([
+		c + Vector2(-31, -5), c + Vector2(-18, -18), c + Vector2(6, -14),
+		c + Vector2(29, -4), c + Vector2(20, 14), c + Vector2(-4, 19), c + Vector2(-27, 10)
+	])
+	draw_colored_polygon(spill, Color(0.35, 0.70, 0.88, 0.24))
+	draw_polyline(PackedVector2Array([c + Vector2(-13, -6), c + Vector2(3, 5), c + Vector2(13, -10)]), Color(0.72, 0.90, 0.98, 0.72), 2.0)
+	draw_circle(c + Vector2(12, 4), 7.0, Color(0.70, 0.90, 1.0, 0.72), false, 2.0)
+	draw_line(c + Vector2(7, 9), c + Vector2(20, 18), Color(0.70, 0.90, 1.0, 0.72), 2.0)
 
 
-func _draw_terrace_bistro_set(center: Vector2, seed_val: int) -> void:
-	# Soft floor shadow
-	draw_circle(center + Vector2(1.5, 2.0), 8.5, Color(0, 0, 0, 0.25))
-
-	# 3 round wooden bar stools around the table
-	for i in 3:
-		var a := float(i) * TAU / 3.0 + float(seed_val) * 0.4
-		var sp := center + Vector2.from_angle(a) * 13.0
-		draw_circle(sp + Vector2(1, 1.5), 3.5, Color(0, 0, 0, 0.22))
-		draw_circle(sp, 3.5, Color(0.22, 0.22, 0.25))
-		draw_circle(sp, 2.8, Color(0.62, 0.46, 0.30))
-		draw_arc(sp, 2.8, 0.0, TAU, 12, Color(0.72, 0.56, 0.38), 0.8)
-
-	# Round cafe table (radius 8px)
-	draw_circle(center, 8.0, Color(0.55, 0.40, 0.26))
-	draw_arc(center, 8.0, 0.0, TAU, 24, Color(0.75, 0.78, 0.82), 1.2) # Chrome rim
-	draw_circle(center, 6.5, Color(0.58, 0.42, 0.28))
-
-	# Espresso cup & saucer
-	draw_circle(center + Vector2(-1.5, -1.0), 2.0, Color(0.92, 0.92, 0.92))
-	draw_circle(center + Vector2(-1.5, -1.0), 1.2, Color(0.30, 0.18, 0.10))
+func _draw_rubble(r: Rect2, x: int, y: int) -> void:
+	draw_rect(r, Color("2d2925"))
+	var seed := x * 41 + y * 73
+	for i in 4:
+		var p := r.position + Vector2(5 + (seed + i * 11) % 23, 5 + (seed * 3 + i * 17) % 23)
+		var size := Vector2(7 + (i % 3) * 3, 5 + ((i + 1) % 3) * 3)
+		draw_rect(Rect2(p - size * 0.5, size), Color("615548") if i % 2 == 0 else Color("8a745c"))
+		draw_line(p - size * 0.4, p + size * 0.35, Color("211d1a"), 1.2)
 
 
-func _draw_bevel(r: Rect2, light: Color, dark: Color) -> void:
-	var T := Cfg.TILE
-	var x := int(r.position.x / T)
-	var y := int(r.position.y / T)
+func _draw_main_room_clutter() -> void:
+	var t := float(Cfg.TILE)
+	# Faded impact marks and two secondary spills.
+	for mark in [Vector2(7, 33), Vector2(35, 17), Vector2(72, 14)]:
+		var c: Vector2 = mark * t
+		draw_circle(c, 25.0, Color(0.07, 0.045, 0.03, 0.24))
+		draw_circle(c + Vector2(5, -3), 11.0, Color(0.16, 0.08, 0.035, 0.20))
+	var coffee := Vector2(24, 18) * t
+	draw_colored_polygon(PackedVector2Array([coffee + Vector2(-18, -4), coffee + Vector2(-8, -14), coffee + Vector2(12, -9), coffee + Vector2(20, 5), coffee + Vector2(4, 13), coffee + Vector2(-15, 9)]), Color(0.24, 0.12, 0.055, 0.42))
+	var water := Vector2(60, 28) * t
+	draw_colored_polygon(PackedVector2Array([water + Vector2(-21, 1), water + Vector2(-9, -12), water + Vector2(16, -9), water + Vector2(24, 7), water + Vector2(3, 15)]), Color(0.35, 0.70, 0.88, 0.20))
+
+	# Loose notes and torn pages in asymmetric clusters.
+	var papers := [
+		[Vector2(6, 12), -0.25], [Vector2(20, 24), 0.18], [Vector2(31, 35), -0.10],
+		[Vector2(47, 16), 0.31], [Vector2(55, 37), -0.28], [Vector2(74, 27), 0.12]
+	]
+	for entry in papers:
+		_draw_paper(entry[0] * t, entry[1])
+
+	# Broken chair legs and backs; purely visual, so they never become phantom
+	# obstacles in the pathfinder.
+	for chair in [Vector2(31, 15), Vector2(17, 29), Vector2(47, 36), Vector2(68, 22)]:
+		_draw_broken_chair(chair * t, chair.x * 0.11)
+
+
+func _draw_lower_room_clutter() -> void:
+	var t := float(Cfg.TILE)
+	# Scattered trays, papers and spills echo the damaged main hall without
+	# affecting navigation.
+	for entry in [
+		[Vector2(31.5, 58.0), -0.32], [Vector2(41.0, 52.0), 0.18],
+		[Vector2(60.0, 66.5), -0.13], [Vector2(34.0, 65.0), 0.41]
+	]:
+		_draw_paper(entry[0] * t, entry[1])
+	var spill := Vector2(59.5, 53.5) * t
+	draw_colored_polygon(PackedVector2Array([
+		spill + Vector2(-24, -6), spill + Vector2(-10, -17), spill + Vector2(18, -12),
+		spill + Vector2(27, 5), spill + Vector2(9, 16), spill + Vector2(-17, 12)
+	]), Color(0.30, 0.55, 0.43, 0.25))
+	for tray in [Vector2(32.0, 52.0), Vector2(61.0, 48.0), Vector2(34.0, 61.0)]:
+		var c: Vector2 = tray * t
+		draw_set_transform(c, (tray.x + tray.y) * 0.07, Vector2.ONE)
+		draw_rect(Rect2(-14, -9, 28, 18), Color("58616a"))
+		draw_rect(Rect2(-11, -6, 22, 12), Color("8d969d"), false, 1.5)
+		draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+
+
+func _draw_paper(position: Vector2, angle: float) -> void:
+	draw_set_transform(position, angle, Vector2.ONE)
+	draw_rect(Rect2(-8, -6, 16, 12), Color(0.82, 0.79, 0.69, 0.82))
+	draw_line(Vector2(-5, -2), Vector2(5, -2), Color(0.28, 0.27, 0.25, 0.48), 1.0)
+	draw_line(Vector2(-5, 2), Vector2(2, 2), Color(0.28, 0.27, 0.25, 0.40), 1.0)
+	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+
+
+func _draw_broken_chair(position: Vector2, angle: float) -> void:
+	draw_set_transform(position, angle, Vector2.ONE)
+	draw_rect(Rect2(-7, -6, 14, 11), Color("795235"))
+	draw_rect(Rect2(-7, -6, 14, 11), Color("c18d55"), false, 1.3)
+	draw_line(Vector2(-9, 6), Vector2(-16, 14), Color("6b482f"), 3.0)
+	draw_line(Vector2(8, 5), Vector2(15, 11), Color("6b482f"), 3.0)
+	draw_line(Vector2(-5, -8), Vector2(10, -15), Color("6b482f"), 3.0)
+	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+
+
+func _draw_wall(r: Rect2, x: int, y: int) -> void:
+	var blast_damaged: bool = (y == 0 and x >= 14 and x <= 23) or (y == map.MAIN_BOTTOM and x in [70, 71, 77, 78])
+	draw_rect(r, Color("665e54") if blast_damaged else Color("cbc2ae"))
+	draw_rect(Rect2(r.position + Vector2(3, 3), r.size - Vector2(6, 6)), Color("8b7c68") if blast_damaged else Color("e1d8c2"))
 	if not map.is_wall_tile(x, y - 1):
-		draw_rect(Rect2(r.position, Vector2(T, 3)), light)
-	if not map.is_wall_tile(x - 1, y):
-		draw_rect(Rect2(r.position, Vector2(3, T)), light.darkened(0.1))
+		draw_rect(Rect2(r.position, Vector2(r.size.x, 3)), Color("fff2d5"))
 	if not map.is_wall_tile(x, y + 1):
-		draw_rect(Rect2(r.position + Vector2(0, T - 3), Vector2(T, 3)), dark)
+		draw_rect(Rect2(r.position + Vector2(0, r.size.y - 4), Vector2(r.size.x, 4)), Color("756f66"))
+	if not map.is_wall_tile(x - 1, y):
+		draw_rect(Rect2(r.position, Vector2(3, r.size.y)), Color("f3e8ce"))
 	if not map.is_wall_tile(x + 1, y):
-		draw_rect(Rect2(r.position + Vector2(T - 3, 0), Vector2(3, T)), dark.lightened(0.05))
+		draw_rect(Rect2(r.position + Vector2(r.size.x - 4, 0), Vector2(4, r.size.y)), Color("777066"))
+	if blast_damaged:
+		draw_line(r.position + Vector2(5, 3), r.position + Vector2(13, 15), Color("2b2722"), 2.0)
+		draw_line(r.position + Vector2(13, 15), r.position + Vector2(8, 28), Color("2b2722"), 1.5)
+
+
+func _draw_table(r: Rect2, x: int, y: int, damaged := false, tipped := false, destroyed := false) -> void:
+	if destroyed:
+		# A collapsed tabletop is debris only; its collision was removed in MapData.
+		for i in 8:
+			var p := Vector2(-21 + (i * 17) % 43, -35 + (i * 29) % 71)
+			var size := Vector2(12 + (i % 3) * 5, 5 + ((i + 1) % 3) * 3)
+			draw_rect(Rect2(p - size * 0.5, size), Color("754523") if i % 2 == 0 else Color("a96a31"))
+			draw_line(p - size * 0.35, p + size * 0.35, Color("382217"), 1.3)
+		return
+	if tipped:
+		var slab := Rect2(Vector2(-7, r.position.y), Vector2(14, r.size.y))
+		draw_rect(Rect2(slab.position + Vector2(3, 4), slab.size), Color(0, 0, 0, 0.34))
+		draw_rect(slab, Color("493321"))
+		draw_rect(slab.grow(-2), Color("75502d"))
+		draw_line(Vector2(-10, slab.position.y + 8), Vector2(-18, slab.position.y + 23), Color("38271d"), 3.0)
+		draw_line(Vector2(10, slab.end.y - 8), Vector2(19, slab.end.y - 22), Color("38271d"), 3.0)
+		return
+	draw_rect(Rect2(r.position + Vector2(3, 4), r.size), Color(0, 0, 0, 0.34))
+	draw_rect(r, Color("493321") if tipped else Color("815029"))
+	draw_rect(r.grow(-2), Color("75502d") if damaged or tipped else Color("a96a31"))
+	for grain_y in range(12, floori(r.size.y), 18):
+		draw_line(r.position + Vector2(3, grain_y), r.position + Vector2(r.size.x - 3, grain_y), Color(0.28, 0.13, 0.06, 0.42), 1.0)
+	draw_rect(r, Color("e8a95c"), false, 1.5)
+	# A small water glass near one end, matching the objects marked on the plan.
+	var glass_y := 12.0 if (x + y) % 2 == 0 else r.size.y - 12.0
+	draw_circle(r.position + Vector2(r.size.x * 0.5, glass_y), 2.2, Color(0.42, 0.80, 0.95, 0.82))
+	draw_circle(r.position + Vector2(r.size.x * 0.5, glass_y), 1.0, Color(0.75, 0.92, 1.0, 0.55), false, 1.0)
+	if damaged:
+		draw_line(r.position + Vector2(4, 18), r.position + Vector2(r.size.x - 5, 31), Color("332116"), 2.0)
+		draw_line(r.position + Vector2(r.size.x - 5, 31), r.position + Vector2(8, 48), Color("332116"), 1.5)
+	if tipped:
+		draw_rect(Rect2(r.position + Vector2(4, r.size.y * 0.46), Vector2(r.size.x - 8, 7)), Color("35271e"))
+
+
+func _draw_table_chairs(table_rect: Rect2, seats: int, seed: int) -> void:
+	var chairs_per_side := seats / 2
+	for row in chairs_per_side:
+		var chair_y := table_rect.position.y + (row + 0.5) * table_rect.size.y / chairs_per_side
+		for side in [-1.0, 1.0]:
+			var chair_x := table_rect.position.x + (0.0 if side < 0.0 else table_rect.size.x)
+			var p := Vector2(chair_x + side * 9.0, chair_y + float((seed + row) % 3) - 1.0)
+			draw_circle(p + Vector2(1.5, 2), 5.0, Color(0, 0, 0, 0.3))
+			draw_rect(Rect2(p - Vector2(5, 5), Vector2(10, 10)), Color("6c4930"))
+			draw_rect(Rect2(p - Vector2(5, 5), Vector2(10, 10)), Color("c79a62"), false, 1.3)
+			var back_x := -5.0 if side < 0.0 else 5.0
+			draw_line(p + Vector2(back_x, -5), p + Vector2(back_x, 5), Color("e0bd86"), 2.0)
+
+
+func _draw_plant(r: Rect2, seed: int) -> void:
+	var c := r.get_center()
+	draw_circle(c + Vector2(2, 3), 12.5, Color(0, 0, 0, 0.35))
+	draw_circle(c, 11.0, Color("78482a"))
+	draw_circle(c, 8.0, Color("243827"))
+	for i in 7:
+		var a := float(i) * TAU / 7.0 + seed * 0.13
+		var leaf := c + Vector2.from_angle(a) * 7.0
+		draw_circle(leaf, 4.5, Color("439359") if i % 2 == 0 else Color("2e7146"))
+
+
+func _draw_counter(r: Rect2, idx: int) -> void:
+	draw_rect(Rect2(r.position + Vector2(4, 5), r.size), Color(0, 0, 0, 0.34))
+	draw_rect(r, Color("4b3524"))
+	draw_rect(r.grow(-3), Color("765234"))
+	draw_rect(r.grow(-4), Color("b68452"), false, 1.5)
+	# The two broad bottom counters carry the blue drinking fountains shown in
+	# the plan; the right one also carries the cluster of glasses.
+	if idx in [1, 4]:
+		var fountain := r.position + Vector2(r.size.x - 14, r.size.y * 0.5)
+		draw_circle(fountain, 9.0, Color("2d719b"))
+		draw_circle(fountain, 5.8, Color("80c9e8"))
+	if idx == 4:
+		for gy in 3:
+			for gx in 4:
+				draw_circle(r.position + Vector2(16 + gx * 6, r.size.y * 0.5 - 6 + gy * 6), 1.8, Color("f5a623"))
+
+
+func _draw_service_fixture(fixture: Dictionary) -> void:
+	var r: Rect2 = map.fixture_visual_rect(fixture)
+	match String(fixture["kind"]):
+		"register":
+			_draw_cash_register(r, bool(fixture.get("damaged", false)))
+		"food_line":
+			_draw_food_line(r, bool(fixture.get("damaged", false)))
+		"buffet":
+			_draw_hollow_buffet(r)
+
+
+func _draw_cash_register(r: Rect2, damaged: bool) -> void:
+	draw_rect(Rect2(r.position + Vector2(4, 5), r.size), Color(0, 0, 0, 0.34))
+	draw_rect(r, Color("343b40"))
+	draw_rect(r.grow(-3), Color("7c8589"))
+	draw_rect(r.grow(-4), Color("c0c8c8"), false, 1.5)
+	var screen := Rect2(r.position + Vector2(18, 10), Vector2(32, 25))
+	draw_rect(screen, Color("252c30"))
+	draw_rect(screen.grow(-3), Color("558aa0"))
+	for ky in 2:
+		for kx in 5:
+			draw_rect(Rect2(r.position + Vector2(62 + kx * 9, 11 + ky * 10), Vector2(6, 6)), Color("252b2e"))
+	if damaged:
+		draw_line(screen.position + Vector2(4, 3), screen.end - Vector2(5, 4), Color("b9e3ed"), 1.5)
+		draw_line(r.position + Vector2(r.size.x - 21, 5), r.position + Vector2(r.size.x - 7, 18), Color("40474b"), 2.0)
+
+
+func _draw_food_line(r: Rect2, damaged: bool) -> void:
+	draw_rect(Rect2(r.position + Vector2(4, 5), r.size), Color(0, 0, 0, 0.34))
+	draw_rect(r, Color("3d464b"))
+	draw_rect(r.grow(-3), Color("8b9497"))
+	draw_rect(r.grow(-5), Color("c1c7c6"), false, 1.5)
+	var horizontal := r.size.x > r.size.y
+	var length := r.size.x if horizontal else r.size.y
+	var sections := maxi(2, floori(length / 94.0))
+	for i in range(1, sections):
+		var ratio := float(i) / sections
+		if horizontal:
+			draw_line(Vector2(lerpf(r.position.x, r.end.x, ratio), r.position.y + 5), Vector2(lerpf(r.position.x, r.end.x, ratio), r.end.y - 5), Color("4c5559"), 2.0)
+		else:
+			draw_line(Vector2(r.position.x + 5, lerpf(r.position.y, r.end.y, ratio)), Vector2(r.end.x - 5, lerpf(r.position.y, r.end.y, ratio)), Color("4c5559"), 2.0)
+	# Pale cyan guard rails make the food lines read as glass and steel.
+	var inset := r.grow(-8)
+	draw_rect(inset, Color(0.58, 0.82, 0.86, 0.34), false, 2.0)
+	if damaged:
+		var c := r.get_center()
+		draw_line(c + Vector2(-13, -8), c + Vector2(2, 5), Color("d4eff0"), 1.5)
+		draw_line(c + Vector2(2, 5), c + Vector2(14, -4), Color("d4eff0"), 1.5)
+
+
+func _draw_hollow_buffet(r: Rect2) -> void:
+	var t := float(Cfg.TILE)
+	var thickness := t
+	var top_gap_start := 6.0 * t
+	var top_gap_end := 9.0 * t
+	var bottom_gap_start := 7.0 * t
+	var bottom_gap_end := 10.0 * t
+	var strips := [
+		Rect2(r.position, Vector2(top_gap_start, thickness)),
+		Rect2(r.position + Vector2(top_gap_end, 0), Vector2(r.size.x - top_gap_end, thickness)),
+		Rect2(r.position + Vector2(0, r.size.y - thickness), Vector2(bottom_gap_start, thickness)),
+		Rect2(r.position + Vector2(bottom_gap_end, r.size.y - thickness), Vector2(r.size.x - bottom_gap_end, thickness)),
+		Rect2(r.position + Vector2(0, thickness), Vector2(thickness, r.size.y - 2.0 * thickness)),
+		Rect2(r.position + Vector2(r.size.x - thickness, thickness), Vector2(thickness, r.size.y - 2.0 * thickness))
+	]
+	for strip in strips:
+		draw_rect(Rect2(strip.position + Vector2(4, 5), strip.size), Color(0, 0, 0, 0.34))
+		draw_rect(strip, Color("394247"))
+		draw_rect(strip.grow(-3), Color("8f9899"))
+		draw_rect(strip.grow(-5), Color("b8d3d3"), false, 1.6)
+	var inner := r.grow(-thickness)
+	# Glass guard panels stop at both entrances and are cracked in several spots.
+	draw_line(inner.position, inner.position + Vector2((top_gap_start - thickness), 0), Color(0.62, 0.88, 0.90, 0.62), 3.0)
+	draw_line(inner.position + Vector2(top_gap_end - thickness, 0), Vector2(inner.end.x, inner.position.y), Color(0.62, 0.88, 0.90, 0.62), 3.0)
+	draw_line(Vector2(inner.position.x, inner.end.y), inner.position + Vector2(bottom_gap_start - thickness, inner.size.y), Color(0.62, 0.88, 0.90, 0.62), 3.0)
+	draw_line(inner.position + Vector2(bottom_gap_end - thickness, inner.size.y), inner.end, Color(0.62, 0.88, 0.90, 0.62), 3.0)
+	draw_line(inner.position, Vector2(inner.position.x, inner.end.y), Color(0.62, 0.88, 0.90, 0.62), 3.0)
+	draw_line(Vector2(inner.end.x, inner.position.y), inner.end, Color(0.62, 0.88, 0.90, 0.62), 3.0)
+	draw_line(inner.position + Vector2(inner.size.x * 0.23, 0), inner.position + Vector2(inner.size.x * 0.28, 15), Color("e0f2f2"), 1.7)
+	draw_line(inner.position + Vector2(inner.size.x * 0.28, 15), inner.position + Vector2(inner.size.x * 0.34, 0), Color("e0f2f2"), 1.7)
+	# Food trays on the thick display frame.
+	var foods := [Color("c97832"), Color("7f9f45"), Color("d4b052"), Color("a94e3f")]
+	for i in 9:
+		var p := r.position + Vector2(42 + i * 45, 30 if i % 2 == 0 else r.size.y - 31)
+		draw_rect(Rect2(p - Vector2(14, 8), Vector2(28, 16)), Color("4b5356"))
+		draw_circle(p, 6.0, foods[i % foods.size()])
+		draw_circle(p + Vector2(7, 2), 3.5, foods[(i + 1) % foods.size()])
+	# Loose shards sit beside the top entrance and remain decorative.
+	var shard_origin := r.position + Vector2(top_gap_start + 14, thickness + 9)
+	for offset in [Vector2(-16, 3), Vector2(0, -4), Vector2(15, 7), Vector2(24, -6)]:
+		var p: Vector2 = shard_origin + offset
+		draw_polyline(PackedVector2Array([p + Vector2(-5, 3), p + Vector2(1, -5), p + Vector2(6, 4)]), Color(0.70, 0.92, 0.95, 0.72), 1.4)
+
+
+func _draw_door_frames() -> void:
+	var t := float(Cfg.TILE)
+	draw_rect(Rect2(2 * t - 3, map.MAIN_BOTTOM * t - 7, 6 * t + 6, 10), Color("555d69"))
+	draw_rect(Rect2((Cfg.MAP_W - 1) * t - 7, 2 * t - 3, 10, 6 * t + 6), Color("555d69"))
+
+
+func _draw_doors(open_amount: float) -> void:
+	var t := float(Cfg.TILE)
+	var panel := 3.0 * t
+	var slide := panel * open_amount
+	var blue_y: float = map.MAIN_BOTTOM * t
+	_draw_door_panel(Rect2(2 * t - slide, blue_y, panel, 8), Cfg.TEAM_COLORS[0], true)
+	_draw_door_panel(Rect2(5 * t + slide, blue_y, panel, 8), Cfg.TEAM_COLORS[0], true)
+	var red_x := (Cfg.MAP_W - 1) * t
+	_draw_door_panel(Rect2(red_x, 2 * t - slide, 8, panel), Cfg.TEAM_COLORS[1], false)
+	_draw_door_panel(Rect2(red_x, 5 * t + slide, 8, panel), Cfg.TEAM_COLORS[1], false)
+
+
+func _draw_door_panel(r: Rect2, team_color: Color, horizontal: bool) -> void:
+	draw_rect(r, Color("202936"))
+	draw_rect(r.grow(-2), Color("394758"))
+	draw_rect(r.grow(-2), Color(team_color, 0.65), false, 1.5)
+	if horizontal:
+		draw_line(r.position + Vector2(5, r.size.y * 0.5), r.end - Vector2(5, r.size.y * 0.5), Color(0.78, 0.84, 0.9, 0.5), 1.0)
+	else:
+		draw_line(r.position + Vector2(r.size.x * 0.5, 5), r.end - Vector2(r.size.x * 0.5, 5), Color(0.78, 0.84, 0.9, 0.5), 1.0)

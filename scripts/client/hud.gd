@@ -28,6 +28,11 @@ func _process(_dt: float) -> void:
 	queue_redraw()
 
 
+func bar_top() -> float:
+	# HUD is screen-space. The arena can be any size and move under the camera.
+	return maxf(0.0, size.y - BAR_H)
+
+
 func _text(pos: Vector2, text: String, fs: int, col := Color.WHITE, align := HORIZONTAL_ALIGNMENT_LEFT, width := -1.0) -> void:
 	draw_string(font, pos, text, align, width, fs, col)
 
@@ -186,7 +191,7 @@ func _draw() -> void:
 	if game == null or game.slot < 0:
 		return
 	var vw := size.x
-	var top := Cfg.WORLD_SIZE.y
+	var top := bar_top()
 	var my_col: Color = Cfg.TEAM_COLORS[game.slot]
 	var en_col: Color = Cfg.TEAM_COLORS[1 - game.slot]
 
@@ -360,7 +365,7 @@ func _draw() -> void:
 		by += 24.0
 
 	# Big centre text
-	var center_y := Cfg.WORLD_SIZE.y * 0.5
+	var center_y := top * 0.5
 	match game.state:
 		Cfg.State.WAITING:
 			_text_center(vw * 0.5, center_y, "Waiting for an opponent to join...", 30, Color(1, 1, 1, 0.9))

@@ -3,7 +3,6 @@ extends Node2D
 ## scan pings, damage indicators. Lives inside the (possibly rotated) World node.
 
 const Cfg = preload("res://scripts/config.gd")
-const MapData = preload("res://scripts/map_data.gd")
 
 var game  # ClientGame
 var font: Font
@@ -306,4 +305,3 @@ func _draw_voice_pings() -> void:
 		draw_circle(p, 3.0, Color(col, a))
 		if ping["label"] != "":
 			_draw_label(p + Vector2(0, 26.0).rotated(-game.world_rotation), ping["label"], Color(col, a), 12)
-

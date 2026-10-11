@@ -7,8 +7,8 @@ const MAX_PLAYERS := 2
 const SQUAD_SIZE := 4
 
 const TILE := 32
-const MAP_W := 40
-const MAP_H := 22
+const MAP_W := 80
+const MAP_H := 71
 const WORLD_SIZE := Vector2(MAP_W * TILE, MAP_H * TILE)
 
 # --- Soldiers -------------------------------------------------------------
@@ -165,7 +165,7 @@ const SCAN_MOVE_MEMORY := 1.5
 
 # --- Match ----------------------------------------------------------------
 const COUNTDOWN := 3.0
-const DEPLOYMENT_DURATION := 2.4
+const DEPLOYMENT_DURATION := 5.0
 
 enum State { WAITING, LOADOUT, DEPLOYMENT, COUNTDOWN, PLAYING, ENDED }
 

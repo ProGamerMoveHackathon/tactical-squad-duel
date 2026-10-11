@@ -198,6 +198,7 @@ func _reset_squads() -> void:
 
 func _start_match() -> void:
 	_reset_squads()
+	map.set_doors_closed(false)
 	for team in 2:
 		for s: Soldier in squads[team]:
 			var destination := map.spawn_position(team, s.idx)
@@ -553,9 +554,12 @@ func _physics_process(dt: float) -> void:
 	match state:
 		Cfg.State.DEPLOYMENT:
 			deployment -= dt
-			for team in 2:
-				for s: Soldier in squads[team]:
-					_move_soldier(s, dt)
+			# Give both entrance doors time to finish opening before the squads
+			# cross the threshold and spread into their starting formation.
+			if Cfg.DEPLOYMENT_DURATION - deployment >= 0.55:
+				for team in 2:
+					for s: Soldier in squads[team]:
+						_move_soldier(s, dt)
 			if deployment <= 0.0:
 				deployment = 0.0
 				for team in 2:
@@ -564,6 +568,7 @@ func _physics_process(dt: float) -> void:
 						s.path.clear()
 						s.facing = map.spawn_facing(team)
 						s.watch_angle = s.facing
+				map.set_doors_closed(true)
 				state = Cfg.State.COUNTDOWN
 				countdown = Cfg.COUNTDOWN
 				for t in 2:
